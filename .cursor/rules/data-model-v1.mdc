@@ -1,0 +1,44 @@
+---
+description: Modèle de données V1 — clients, séances, produits et traçabilité
+alwaysApply: true
+---
+
+# Données V1
+
+Spec détaillée : `database-start.md`. Le schéma SQLite de départ suit ce modèle. Stock, lot séparé, hygiène et documents restent hors base.
+
+```text
+CLIENT 1──< SESSION ──< SESSION_PRODUCT >── PRODUCT
+                ├── consent questionnaire (session_id)
+                └── health questionnaire (session_id)
+```
+
+## Champs
+
+- `clients` : `id`, `first_name`, `last_name`, `created_at`, `updated_at` obligatoires. `birth_date`, `email`, `phone`, `notes` optionnels.
+- `sessions` : `client_id`, `date`, `status`, `created_at`, `updated_at` obligatoires. Statuts V1 : `PLANNED`, `COMPLETED`, `CANCELLED`, `RESCHEDULED`. `body_area`, `description`, `notes` optionnels.
+- `products` : `name`, `lot_number`, `expiration_date`, `single_use` obligatoires. `creation_date`, `opened_at`, `after_opening_months`, `product_url` optionnels. `opened_at` NULL = jamais ouvert. `after_opening_months` est la durée en mois après ouverture. La limite utile est la plus proche entre `expiration_date` et `opened_at` plus cette durée. `single_use` vaut 1 pour une aiguille, 0 pour une encre. Le lot est une colonne, pas une table.
+- `session_products` : `session_id`, `product_id`, `created_at`.
+
+Les questionnaires ont un `session_id`. Leurs champs métier ne sont pas figés. Une séance a les siens ; un client n'a pas un questionnaire global.
+
+## Traçabilité
+
+```sql
+-- ❌ lot séparé, stock, questionnaire sur le client
+INSERT INTO lots (number) VALUES ('LOT-123');
+UPDATE products SET quantity = quantity - 1;
+UPDATE clients SET consent = '...';
+
+-- ✅ lien séance ↔ produit
+INSERT INTO session_products (session_id, product_id, created_at)
+VALUES (?, ?, ?);
+```
+
+Depuis une séance : ses produits. Depuis un produit : ses séances. Depuis un client : séances, puis produits. Ces liens ne se suppriment pas.
+
+## Principes
+
+- Une séance appartient à un seul client. Un produit peut servir plusieurs séances.
+- Quatre tables, plus les deux questionnaires quand leurs champs seront connus.
+- Scanner, mouvements de stock, fournisseurs, hygiène et documents s'ajoutent quand le besoin est défini.

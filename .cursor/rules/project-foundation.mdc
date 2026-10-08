@@ -1,0 +1,46 @@
+---
+description: Base Tattoo Manager — stack, architecture et principes à respecter
+alwaysApply: true
+---
+
+# Tattoo Manager
+
+Application desktop offline-first pour une tatoueuse. La vision produit est dans `project.md`. Le schéma SQLite de la V1 est dans `database-start.md`. L'application n'est pas un règlement sanitaire ou juridique.
+
+## Stack
+
+- Desktop : Tauri 2. Frontend : React, TypeScript strict, Vite, Tailwind. Composants maison dans `src/components/`.
+- État UI seulement : Zustand (`SettingsStore`, `UIStore`).
+- Backend local : Rust. Données : SQLite + SQLx, migrations dans `src-tauri/migrations/`.
+- Outils : pnpm, Cargo, ESLint, Prettier, rustfmt, clippy. Tests : Vitest, Playwright, tests Rust.
+
+Pas de Next.js, serveur Node, API REST, PostgreSQL, Docker ni cloud en V1.
+
+## Architecture
+
+```text
+React (interface) → invoke("…") → Rust (métier) → SQLite
+```
+
+```text
+// ❌ métier et SQL dans le composant
+await db.run("INSERT INTO clients ...");
+
+// ✅ commande Tauri, schéma V1
+invoke("create_client", { firstName, lastName });
+invoke("link_session_product", { sessionId, productId });
+```
+
+- Données métier dans SQLite. Zustand ne stocke pas clients, séances ni produits.
+- Photos et documents, plus tard, restent sur disque. SQLite ne garde que les métadonnées.
+- Migrations additives et traçables. Ne jamais réécrire silencieusement d'anciennes données.
+- Schéma de départ : clients, séances, produits, `session_products`, questionnaires de séance.
+
+## Principes
+
+- Rester simple. Pas de sync, multi-postes ou comptes tant que ce n'est pas demandé.
+- Modéliser les relations en base avant l'UI. Logique métier dans Rust, pas dans React.
+- Chaque dépendance doit avoir une justification.
+- Ne pas inventer de règles d'hygiène, de stérilisation ou de conservation.
+- Écrire un composant UI quand un écran en a besoin. Pas de bibliothèque de composants.
+- Features V1 dans `src/features/{clients,sessions,products}`. Rust dans `src-tauri/src/{commands,database,models,services}`.
