@@ -13,7 +13,7 @@ export function Sidebar() {
   return (
     <aside className="flex w-[210px] shrink-0 flex-col border-r border-line bg-surface">
       <div className="border-b border-line px-4 py-4">
-        <p className="text-[13px] font-medium tracking-tight text-fg">Tattoo Manager</p>
+        <p className="text-[13px] font-medium tracking-tight text-fg">Tracink</p>
         <p className="mt-0.5 text-[11px] text-fg-faint">Atelier</p>
       </div>
       <nav className="flex flex-col gap-0.5 p-3" aria-label="Navigation principale">

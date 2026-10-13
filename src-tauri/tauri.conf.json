@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "tattoo-manager",
+  "productName": "Tracink",
   "version": "0.1.0",
-  "identifier": "com.tattoomanager.app",
+  "identifier": "com.tracink.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Tattoo Manager",
+        "title": "Tracink",
         "width": 1200,
         "height": 800
       }
@@ -31,5 +31,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEzODczOUYwMDI3MDYwQUUKUldTdVlIQUM4RG1Iby9rajZMRjJTR3FXRG9xVDFqSFJzelFFR2ZRNVdwRFlrUlVhK0lyeEhGSnUK",
+      "endpoints": [
+        "https://github.com/ValentinGiraud-dev/tattoo-manager/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
