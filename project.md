@@ -934,30 +934,30 @@ La roadmap est indicative et pourra changer.
 
 ## Phase 2 — Clients
 
-- [ ] Liste des clients
-- [ ] Création
-- [ ] Modification
-- [ ] Recherche
-- [ ] Fiche client
+- [x] Liste des clients
+- [x] Création
+- [x] Modification
+- [x] Recherche
+- [x] Fiche client
 
 
 
 ## Phase 3 — Séances
 
-- [ ] Création d'une séance
-- [ ] Statuts `PLANNED`, `COMPLETED`, `CANCELLED`, `RESCHEDULED`
-- [ ] Notes
-- [ ] Lien avec le client
+- [x] Création d'une séance
+- [x] Statuts `PLANNED`, `COMPLETED`, `CANCELLED`, `RESCHEDULED`
+- [x] Notes
+- [x] Lien avec le client
 
 
 
 ## Phase 4 — Produits et traçabilité
 
-- [ ] Produits (`name`, `lot_number`, `expiration_date`, `opened_at`, `after_opening_months`, `single_use`, `product_url`)
-- [ ] Lien `session_products`
-- [ ] Produits d'une séance
-- [ ] Séances d'un produit
-- [ ] Produits d'un client
+- [x] Produits (`name`, `lot_number`, `expiration_date`, `opened_at`, `after_opening_months`, `single_use`, `product_url`)
+- [x] Lien `session_products`
+- [x] Produits d'une séance
+- [x] Séances d'un produit
+- [x] Produits d'un client
 
 
 

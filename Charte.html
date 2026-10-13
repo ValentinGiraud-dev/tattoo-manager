@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Charte · Tattoo Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout : colonne unique 1080px. Même DA que NOVA (Ivoire / Jour), sans mascotte. */
+:root{
+  --bg:#0b0b0c; --surface:#141416; --surface-2:#1b1b1e; --surface-3:#242428;
+  --line:rgba(236,235,230,.10); --line-strong:rgba(236,235,230,.18);
+  --fg:#ecebe6; --fg-muted:#a3a39c; --fg-faint:#6c6c66;
+  --accent:#ecebe6; --accent-fg:#0b0b0c;
+  --success:#8cc09a; --warning:#dcb36e; --danger:#e2786b; --info:#93abd8;
+  --st-planned:#93abd8; --st-planned-bg:rgba(147,171,216,.14);
+  --st-completed:#8cc09a; --st-completed-bg:rgba(140,192,154,.14);
+  --st-cancelled:#6c6c66; --st-cancelled-bg:rgba(108,108,102,.18);
+  --st-rescheduled:#dcb36e; --st-rescheduled-bg:rgba(220,179,110,.14);
+  --font-sans:"Geist","GeistSans",-apple-system,"SF Pro Text",system-ui,sans-serif;
+  --font-mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --r-sm:6px; --r-md:10px; --r-lg:16px; --r-pill:999px;
+  --ease-out:cubic-bezier(.23,1,.32,1); --t-fast:120ms; --t-base:200ms; --t-slow:320ms;
+  color-scheme:dark;
+}
+:root[data-tm="jour"]{
+  --bg:#f6f5f1; --surface:#ffffff; --surface-2:#efeee9; --surface-3:#e6e4de;
+  --line:rgba(22,22,20,.09); --line-strong:rgba(22,22,20,.17);
+  --fg:#161614; --fg-muted:#5f5f59; --fg-faint:#96958e;
+  --accent:#161614; --accent-fg:#f6f5f1;
+  --success:#2f8a4a; --warning:#a8741c; --danger:#c2473a; --info:#3f63a8;
+  --st-planned:#3f63a8; --st-planned-bg:rgba(63,99,168,.12);
+  --st-completed:#2f8a4a; --st-completed-bg:rgba(47,138,74,.12);
+  --st-cancelled:#96958e; --st-cancelled-bg:rgba(150,149,142,.14);
+  --st-rescheduled:#a8741c; --st-rescheduled-bg:rgba(168,116,28,.12);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: light){:root:not([data-tm]){
+  --bg:#f6f5f1; --surface:#ffffff; --surface-2:#efeee9; --surface-3:#e6e4de;
+  --line:rgba(22,22,20,.09); --line-strong:rgba(22,22,20,.17);
+  --fg:#161614; --fg-muted:#5f5f59; --fg-faint:#96958e;
+  --accent:#161614; --accent-fg:#f6f5f1;
+  --success:#2f8a4a; --warning:#a8741c; --danger:#c2473a; --info:#3f63a8;
+  --st-planned:#3f63a8; --st-planned-bg:rgba(63,99,168,.12);
+  --st-completed:#2f8a4a; --st-completed-bg:rgba(47,138,74,.12);
+  --st-cancelled:#96958e; --st-cancelled-bg:rgba(150,149,142,.14);
+  --st-rescheduled:#a8741c; --st-rescheduled-bg:rgba(168,116,28,.12);
+  color-scheme:light;
+}}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-sans);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;transition:background var(--t-slow) var(--ease-out),color var(--t-slow) var(--ease-out)}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:clamp(16px,4vw,40px);padding-block:0 96px}
+h1,h2,h3{font-weight:500;text-wrap:balance;margin:0}
+p{margin:0}
+code,.mono{font-family:var(--font-mono);font-size:.86em}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.top-in{max-width:1080px;margin:0 auto;padding:14px clamp(16px,4vw,40px);display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px;font-weight:500;letter-spacing:-.01em}
+.brand small{color:var(--fg-faint);font-weight:400;font-size:13px}
+.presets{display:flex;gap:4px;padding:3px;border:1px solid var(--line);border-radius:var(--r-pill);background:var(--surface)}
+.presets button{all:unset;cursor:pointer;font-size:13px;padding:5px 12px;border-radius:var(--r-pill);color:var(--fg-muted);display:flex;align-items:center;gap:7px;transition:all var(--t-base) var(--ease-out)}
+.presets button:hover{color:var(--fg)}
+.presets button[aria-pressed="true"]{background:var(--surface-3);color:var(--fg)}
+.presets button:focus-visible{outline:2px solid var(--accent)}
+.dot{width:8px;height:8px;border-radius:50%;border:1px solid var(--line-strong)}
+
+.hero{padding-block:72px 56px;display:grid;gap:20px;max-width:720px}
+.hero h1{font-size:clamp(32px,5vw,46px);letter-spacing:-.04em;line-height:1.05}
+.hero p{color:var(--fg-muted);font-size:17px;max-width:60ch}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-faint)}
+
+section{border-top:1px solid var(--line);padding-block:48px;display:grid;grid-template-columns:240px minmax(0,1fr);gap:32px}
+@media (max-width:820px){section{grid-template-columns:minmax(0,1fr);gap:20px}}
+.sec-h{display:grid;gap:8px;align-content:start}
+.sec-h h2{font-size:20px;letter-spacing:-.02em}
+.sec-h p{color:var(--fg-muted);font-size:14px}
+.body{display:grid;gap:24px;min-width:0}
+
+.principles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}
+@media (max-width:560px){.principles{grid-template-columns:minmax(0,1fr)}}
+.principles div{background:var(--bg);padding:20px;display:grid;gap:6px}
+.principles h3{font-size:15px}
+.principles p{color:var(--fg-muted);font-size:14px}
+
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.sw{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;background:var(--surface)}
+.sw-c{height:64px;border-bottom:1px solid var(--line)}
+.sw-m{padding:10px 12px;display:grid;gap:2px}
+.sw-m b{font-weight:500;font-size:13px}
+.sw-m span{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-faint)}
+.group-label{font-size:12px;color:var(--fg-faint);letter-spacing:.06em;text-transform:uppercase}
+
+.type-row{display:grid;grid-template-columns:120px minmax(0,1fr);gap:16px;align-items:baseline;padding-block:14px;border-bottom:1px solid var(--line)}
+.type-row:last-child{border-bottom:0}
+.type-row .meta{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-faint)}
+@media (max-width:560px){.type-row{grid-template-columns:minmax(0,1fr);gap:4px}}
+
+.shapes{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.shape{border:1px solid var(--line);background:var(--surface);padding:16px;display:grid;gap:12px}
+.shape .demo{height:44px;background:var(--surface-3);border:1px solid var(--line-strong)}
+.shape span{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-faint)}
+.motion{display:flex;flex-wrap:wrap;gap:12px}
+.mo{flex:1 1 180px;border:1px solid var(--line);border-radius:var(--r-md);padding:14px;background:var(--surface);display:grid;gap:10px;cursor:pointer}
+.mo .track{height:6px;border-radius:var(--r-pill);background:var(--surface-3);position:relative;overflow:hidden}
+.mo .knob{position:absolute;inset:0 auto 0 0;width:28%;border-radius:inherit;background:var(--accent);transform:translateX(0)}
+.mo.go .knob{transform:translateX(257%)}
+.mo span{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-faint)}
+
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.btn{all:unset;cursor:pointer;font-size:13px;font-weight:500;padding:7px 14px;border-radius:var(--r-pill);display:inline-flex;align-items:center;gap:6px;transition:all var(--t-base) var(--ease-out)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn-primary{background:var(--accent);color:var(--accent-fg)}
+.btn-primary:hover{filter:brightness(1.08)}
+.btn-ghost{color:var(--fg-muted);border:1px solid var(--line-strong)}
+.btn-ghost:hover{color:var(--fg);background:var(--surface-3)}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:3px 10px;border-radius:var(--r-pill)}
+.badge i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.badge-planned{color:var(--st-planned);background:var(--st-planned-bg)}
+.badge-completed{color:var(--st-completed);background:var(--st-completed-bg)}
+.badge-cancelled{color:var(--st-cancelled);background:var(--st-cancelled-bg)}
+.badge-rescheduled{color:var(--st-rescheduled);background:var(--st-rescheduled-bg)}
+
+.app{border:1px solid var(--line-strong);border-radius:var(--r-lg);overflow:hidden;background:var(--bg);box-shadow:0 30px 80px -40px rgba(0,0,0,.6)}
+.titlebar{height:38px;display:flex;align-items:center;gap:8px;padding-inline:14px;border-bottom:1px solid var(--line);background:var(--surface)}
+.tl{width:11px;height:11px;border-radius:50%;background:var(--surface-3);border:1px solid var(--line-strong)}
+.titlebar .ttl{margin-left:auto;margin-right:auto;font-size:12.5px;color:var(--fg-faint);padding-right:40px}
+.app-grid{display:grid;grid-template-columns:210px minmax(0,1fr);min-height:520px}
+@media (max-width:720px){.app-grid{grid-template-columns:minmax(0,1fr)}.side{display:none}}
+.side{border-right:1px solid var(--line);background:var(--surface);padding:12px;display:grid;align-content:start;gap:4px;font-size:13px}
+.side .lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-faint);padding:12px 8px 6px}
+.side a{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r-sm);color:var(--fg-muted);text-decoration:none}
+.side a:hover{background:var(--surface-2);color:var(--fg)}
+.side a.on{background:var(--surface-3);color:var(--fg)}
+.main{display:flex;flex-direction:column;min-width:0}
+.toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--surface)}
+.toolbar h3{font-size:15px;font-weight:500;letter-spacing:-.01em;flex:1}
+.search{display:flex;align-items:center;gap:8px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--bg);padding:6px 10px;min-width:180px;color:var(--fg-faint);font-size:13px}
+.search input{all:unset;color:var(--fg);flex:1;font-size:13px}
+.list{padding:10px 12px;display:grid;gap:4px;flex:1}
+.client{display:grid;grid-template-columns:36px 1fr auto;gap:12px;align-items:center;padding:10px 12px;border-radius:var(--r-md);border:1px solid transparent;transition:background var(--t-fast) var(--ease-out),border-color var(--t-fast) var(--ease-out)}
+.client:hover{background:var(--surface);border-color:var(--line)}
+.client.active{background:var(--surface);border-color:var(--line-strong)}
+.av{width:36px;height:36px;border-radius:8px;background:var(--surface-2);border:1px solid var(--line);color:var(--fg-muted);display:grid;place-items:center;font-size:12px;font-weight:500}
+.client b{font-weight:500;font-size:14px;display:block}
+.client span{font-size:12.5px;color:var(--fg-muted)}
+.client .meta{text-align:right;font-size:12px;color:var(--fg-faint);display:grid;gap:4px;justify-items:end}
+.detail{border-top:1px solid var(--line);padding:18px 16px;background:var(--surface);display:grid;gap:14px}
+.detail-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.detail-h h4{font-size:15px;font-weight:500;letter-spacing:-.01em}
+.detail-h p{font-size:13px;color:var(--fg-muted);margin-top:4px}
+.kv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:640px){.kv{grid-template-columns:1fr}}
+.kv div{padding:12px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--bg);display:grid;gap:4px}
+.kv small{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-faint)}
+.kv b{font-weight:500;font-size:14px}
+.products{display:grid;gap:6px}
+.prod{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--bg);font-size:13px}
+.prod code{color:var(--fg-muted);margin-left:auto}
+
+.layers{display:grid;gap:10px}
+.layer{display:grid;grid-template-columns:150px minmax(0,1fr);gap:16px;border:1px solid var(--line);border-radius:var(--r-md);padding:14px 16px;background:var(--surface);align-items:start}
+@media (max-width:560px){.layer{grid-template-columns:minmax(0,1fr);gap:6px}}
+.layer b{font-weight:500;font-size:14px;display:block}
+.layer small{color:var(--fg-faint);font-size:12px}
+.layer p{color:var(--fg-muted);font-size:13.5px}
+.layer code{color:var(--fg)}
+.arrow{justify-self:center;color:var(--fg-faint);font-size:12px;font-family:var(--font-mono)}
+.code{border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);overflow:auto}
+.code pre{margin:0;padding:14px 16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.7;color:var(--fg-muted)}
+.code .k{color:var(--fg)} .code .c{color:var(--fg-faint)}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:700px){.two{grid-template-columns:minmax(0,1fr)}}
+
+.foot{border-top:1px solid var(--line);padding-top:24px;color:var(--fg-faint);font-size:13px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand">Tattoo Manager <small>Charte v1</small></div>
+    <div class="presets" role="group" aria-label="Thème">
+      <button type="button" data-p="system" aria-pressed="true"><span class="dot" style="background:linear-gradient(90deg,#0b0b0c 50%,#f6f5f1 50%)"></span>Système</button>
+      <button type="button" data-p="ivoire" aria-pressed="false"><span class="dot" style="background:#0b0b0c"></span>Ivoire</button>
+      <button type="button" data-p="jour" aria-pressed="false"><span class="dot" style="background:#f6f5f1"></span>Jour</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="hero">
+    <span class="eyebrow">Direction artistique</span>
+    <h1>Sobre, monochrome, et lisible au quotidien.</h1>
+    <p>Même base que NOVA : un noir légèrement chaud, un blanc cassé, Geist, des bordures fines et une seule courbe d’animation. Deux thèmes, Ivoire la nuit et Jour le jour. Par défaut, l’app suit le réglage clair/sombre du système. Pas de mascotte.</p>
+  </div>
+
+  <section>
+    <div class="sec-h"><h2>Principes</h2><p>Les règles qui tranchent quand on hésite.</p></div>
+    <div class="body">
+      <div class="principles">
+        <div><h3>Monochrome d’abord</h3><p>Le contenu porte l’information. L’accent sert seulement aux actions principales et au focus.</p></div>
+        <div><h3>Bordures, pas d’ombres</h3><p>La profondeur vient de trois niveaux de surface et de lignes à 10 %. Une seule ombre, pour la fenêtre.</p></div>
+        <div><h3>Dense mais calme</h3><p>Un outil métier affiche beaucoup d’infos : texte en 13–14 px, mais de l’air entre les blocs.</p></div>
+        <div><h3>Le mouvement informe</h3><p>Une animation montre un état (hover, focus, ouverture). Jamais décorative, toujours sur la même courbe.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><h2>Couleurs</h2><p>Des tokens sémantiques : on nomme le rôle, jamais la teinte. Les valeurs se mettent à jour quand tu changes de thème.</p></div>
+    <div class="body">
+      <span class="group-label">Surfaces</span>
+      <div class="swatches" data-group="--bg,--surface,--surface-2,--surface-3"></div>
+      <span class="group-label">Texte, lignes, accent</span>
+      <div class="swatches" data-group="--fg,--fg-muted,--fg-faint,--line-strong,--accent"></div>
+      <span class="group-label">États</span>
+      <div class="swatches" data-group="--success,--warning,--danger,--info"></div>
+      <span class="group-label">Statuts de séance</span>
+      <div class="swatches" data-group="--st-planned,--st-completed,--st-cancelled,--st-rescheduled"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><h2>Typographie</h2><p>Geist pour l’interface, Geist Mono pour les lots, dates techniques et IDs. Titres serrés.</p></div>
+    <div class="body">
+      <div>
+        <div class="type-row"><span class="meta">display · 40/500<br>-0.04em</span><span style="font-size:40px;letter-spacing:-.04em;line-height:1.1;font-weight:500">Séances du jour</span></div>
+        <div class="type-row"><span class="meta">title · 20/500<br>-0.02em</span><span style="font-size:20px;letter-spacing:-.02em;font-weight:500">Camille Martin</span></div>
+        <div class="type-row"><span class="meta">body · 14/400</span><span style="font-size:14px">Avant-bras gauche · floral fineline · 2 h prévues. Produits liés à la séance pour la traçabilité.</span></div>
+        <div class="type-row"><span class="meta">small · 12.5/400</span><span style="font-size:12.5px;color:var(--fg-muted)">Dernière séance · 12 mars 2026 · 3 produits</span></div>
+        <div class="type-row"><span class="meta">mono · 12.5/400</span><span class="mono" style="font-size:12.5px">LOT-ENC-2408 · exp. 2027-04-30</span></div>
+        <div class="type-row"><span class="meta">label · 11/500<br>+0.06em</span><span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-faint);font-weight:500">Zone du corps</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><h2>Formes et mouvement</h2><p>Quatre rayons, une grille de 4 px, une courbe. Clique sur une durée pour la voir.</p></div>
+    <div class="body">
+      <div class="shapes">
+        <div class="shape" style="border-radius:var(--r-sm)"><div class="demo" style="border-radius:var(--r-sm)"></div><span>--r-sm · 6px<br>badges, items</span></div>
+        <div class="shape" style="border-radius:var(--r-md)"><div class="demo" style="border-radius:var(--r-md)"></div><span>--r-md · 10px<br>champs, blocs</span></div>
+        <div class="shape" style="border-radius:var(--r-lg)"><div class="demo" style="border-radius:var(--r-lg)"></div><span>--r-lg · 16px<br>cartes, panneaux</span></div>
+        <div class="shape" style="border-radius:var(--r-lg)"><div class="demo" style="border-radius:var(--r-pill)"></div><span>--r-pill<br>boutons, chips</span></div>
+      </div>
+      <div class="motion">
+        <div class="mo" data-d="--t-fast" tabindex="0" role="button" aria-label="Rejouer 120 ms"><div class="track"><i class="knob"></i></div><span>--t-fast · 120ms · hover</span></div>
+        <div class="mo" data-d="--t-base" tabindex="0" role="button" aria-label="Rejouer 200 ms"><div class="track"><i class="knob"></i></div><span>--t-base · 200ms · UI</span></div>
+        <div class="mo" data-d="--t-slow" tabindex="0" role="button" aria-label="Rejouer 320 ms"><div class="track"><i class="knob"></i></div><span>--t-slow · 320ms · panneaux</span></div>
+      </div>
+      <p style="color:var(--fg-faint);font-size:13px">Courbe <code>--ease-out: cubic-bezier(.23, 1, .32, 1)</code>.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><h2>Statuts</h2><p>Les quatre statuts de séance V1. Couleur + texte, jamais la couleur seule.</p></div>
+    <div class="body">
+      <div class="row">
+        <span class="badge badge-planned"><i></i>Planifiée</span>
+        <span class="badge badge-completed"><i></i>Terminée</span>
+        <span class="badge badge-cancelled"><i></i>Annulée</span>
+        <span class="badge badge-rescheduled"><i></i>Reportée</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><h2>Aperçu de l’app</h2><p>Les tokens appliqués à l’écran principal : navigation, liste clients, détail de séance, produits liés.</p></div>
+    <div class="body">
+      <div class="app">
+        <div class="titlebar"><i class="tl"></i><i class="tl"></i><i class="tl"></i><span class="ttl">Tattoo Manager</span></div>
+        <div class="app-grid">
+          <aside class="side">
+            <span class="lbl">Menu</span>
+            <a href="#">Aujourd’hui</a>
+            <a href="#" class="on">Clients</a>
+            <a href="#">Séances</a>
+            <a href="#">Produits</a>
+            <span class="lbl">Système</span>
+            <a href="#">Réglages</a>
+          </aside>
+          <div class="main">
+            <div class="toolbar">
+              <h3>Clients</h3>
+              <div class="search">
+                <span aria-hidden="true">⌕</span>
+                <input type="search" placeholder="Rechercher…" value="mar" readonly>
+              </div>
+              <button class="btn btn-primary" type="button">Nouveau client</button>
+            </div>
+            <div class="list">
+              <div class="client active">
+                <span class="av">CM</span>
+                <div>
+                  <b>Camille Martin</b>
+                  <span>06 12 34 56 78 · 4 séances</span>
+                </div>
+                <div class="meta">
+                  <span class="badge badge-planned"><i></i>Planifiée</span>
+                  <span>8 oct. 2026</span>
+                </div>
+              </div>
+              <div class="client">
+                <span class="av">LD</span>
+                <div>
+                  <b>Léa Dupont</b>
+                  <span>lea.dupont@email.fr · 2 séances</span>
+                </div>
+                <div class="meta">
+                  <span class="badge badge-completed"><i></i>Terminée</span>
+                  <span>2 sept. 2026</span>
+                </div>
+              </div>
+              <div class="client">
+                <span class="av">AR</span>
+                <div>
+                  <b>Alex Roux</b>
+                  <span>Sans téléphone · 1 séance</span>
+                </div>
+                <div class="meta">
+                  <span class="badge badge-rescheduled"><i></i>Reportée</span>
+                  <span>14 oct. 2026</span>
+                </div>
+              </div>
+            </div>
+            <div class="detail">
+              <div class="detail-h">
+                <div>
+                  <h4>Séance · Avant-bras gauche</h4>
+                  <p>Floral fineline · Camille Martin</p>
+                </div>
+                <div class="row">
+                  <button class="btn btn-ghost" type="button">Lier un produit</button>
+                  <button class="btn btn-primary" type="button">Marquer terminée</button>
+                </div>
+              </div>
+              <div class="kv">
+                <div><small>Date</small><b>8 oct. 2026</b></div>
+                <div><small>Statut</small><b>Planifiée</b></div>
+                <div><small>Zone</small><b>Avant-bras G</b></div>
+              </div>
+              <div>
+                <span class="group-label" style="display:block;margin-bottom:8px">Produits liés</span>
+                <div class="products">
+                  <div class="prod"><span>Encre noire Dynamic</span><code>LOT-ENC-2408</code></div>
+                  <div class="prod"><span>Aiguille 3RL</span><code>LOT-AIG-1192</code></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><h2>Changer de DA facilement</h2><p>Trois niveaux de tokens. Pour une nouvelle DA, on ne touche qu’aux deux premiers.</p></div>
+    <div class="body">
+      <div class="layers">
+        <div class="layer"><div><b>1. Primitives</b><small>valeurs brutes</small></div><p>Échelles de gris, couleurs, tailles. <code>gray.950 = #0b0b0c</code>. Aucun composant ne les utilise directement.</p></div>
+        <div class="arrow">↓</div>
+        <div class="layer"><div><b>2. Sémantiques</b><small>par thème</small></div><p>Le rôle : <code>bg</code>, <code>surface</code>, <code>fg-muted</code>, <code>accent</code>, <code>danger</code>. Un fichier par thème : Ivoire et Jour. Le mode Système choisit entre les deux selon l’OS.</p></div>
+        <div class="arrow">↓</div>
+        <div class="layer"><div><b>3. Composants</b><small>React + Tailwind</small></div><p>Les composants n’utilisent que les tokens sémantiques via Tailwind (<code>bg-surface</code>, <code>text-fg-muted</code>). Zéro couleur en dur.</p></div>
+      </div>
+      <div class="two">
+        <div class="code"><pre><span class="c"># une seule source de vérité</span>
+<span class="k">src/styles/</span>
+  tokens/
+    primitives.css
+    themes/
+      ivoire.css
+      jour.css
+  <span class="k">tokens.css</span>  <span class="c">→ React / Tailwind</span></pre></div>
+        <div class="code"><pre><span class="c">/* tokens.css */</span>
+<span class="k">:root, [data-theme="ivoire"]</span> {
+  --bg: #0b0b0c; --accent: #ecebe6;
+}
+<span class="k">[data-theme="jour"]</span> {
+  --bg: #f6f5f1; --accent: #161614;
+}
+<span class="c">/* Système : suit l’OS */</span>
+<span class="k">@media (prefers-color-scheme: light)</span> {
+  :root:not([data-theme]) { <span class="c">/* = jour */</span> }
+}
+<span class="c">/* Tailwind v4 */</span>
+<span class="k">@theme inline</span> {
+  --color-bg: var(--bg);
+  --color-accent: var(--accent);
+}</pre></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot"><span>Tattoo Manager · charte v1</span><span>Basée sur la DA NOVA · sans mascotte</span></div>
+</main>
+
+<script>
+(function(){
+  var root=document.documentElement;
+
+  function toHex(c){
+    var m=c.match(/rgba?\(([^)]+)\)/); if(!m) return c.trim();
+    var p=m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+    if(p.length>3 && p[3]<1) return "rgba("+p[0]+","+p[1]+","+p[2]+","+p[3]+")";
+    return "#"+p.slice(0,3).map(function(x){return ("0"+x.toString(16)).slice(-2)}).join("");
+  }
+  var probe=document.createElement("i"); probe.style.display="none"; document.body.appendChild(probe);
+  function render(){
+    document.querySelectorAll(".swatches").forEach(function(g){
+      g.innerHTML="";
+      g.dataset.group.split(",").forEach(function(v){
+        probe.style.color="var("+v+")";
+        var val=toHex(getComputedStyle(probe).color);
+        var d=document.createElement("div"); d.className="sw";
+        d.innerHTML='<div class="sw-c" style="background:var('+v+')"></div><div class="sw-m"><b>'+v.replace("--","")+'</b><span>'+val+'</span></div>';
+        g.appendChild(d);
+      });
+    });
+  }
+  function setPreset(p){
+    if(p==="system") root.removeAttribute("data-tm"); else root.setAttribute("data-tm",p);
+    document.querySelectorAll(".presets button").forEach(function(b){b.setAttribute("aria-pressed",String(b.dataset.p===p))});
+    try{localStorage.setItem("tm-preset",p)}catch(e){}
+    requestAnimationFrame(render);
+  }
+  document.querySelectorAll(".presets button").forEach(function(b){b.addEventListener("click",function(){setPreset(b.dataset.p)})});
+  var saved="system"; try{saved=localStorage.getItem("tm-preset")||"system"}catch(e){} if(["system","ivoire","jour"].indexOf(saved)<0) saved="system";
+  try{matchMedia("(prefers-color-scheme: light)").addEventListener("change",function(){requestAnimationFrame(render)})}catch(e){}
+  setPreset(saved);
+
+  document.querySelectorAll(".mo").forEach(function(m){
+    var k=m.querySelector(".knob");
+    k.style.transition="transform var("+m.dataset.d+") var(--ease-out)";
+    function go(){m.classList.toggle("go")}
+    m.addEventListener("click",go);
+    m.addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}});
+  });
+})();
+</script>
+
+</body>
+</html>

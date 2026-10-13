@@ -1,43 +1,32 @@
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect } from "react";
+import { AppShell } from "./components/app-shell";
+import ClientsPage from "./features/clients/clients-page";
+import DashboardPage from "./features/dashboard/dashboard-page";
+import ProductsPage from "./features/products/products-page";
+import SessionsPage from "./features/sessions/sessions-page";
 import { useSettingsStore } from "./stores/settings-store";
+import { useUIStore } from "./stores/ui-store";
 
 function App() {
-  const { settings, paths, loaded, error, load } = useSettingsStore();
-  const [migrationCount, setMigrationCount] = useState<number | null>(null);
+  const { error, load } = useSettingsStore();
+  const page = useUIStore((state) => state.page);
 
   useEffect(() => {
     void load();
-    invoke<number>("database_status")
-      .then(setMigrationCount)
-      .catch((statusError: unknown) => {
-        console.error(statusError);
-      });
   }, [load]);
 
   return (
-    <main className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-      <h1 className="text-3xl font-semibold">Tattoo Manager</h1>
-
-      {!loaded && <p className="text-neutral-600">Chargement de la configuration…</p>}
-
-      {error && <p className="text-red-600">{error}</p>}
-
-      {loaded && !error && settings && paths && (
-        <>
-          <p className="text-neutral-600">
-            Locale {settings.locale} · fenêtre {settings.window.width}×{settings.window.height}
-          </p>
-          <p className="max-w-xl break-all text-sm text-neutral-500">{paths.root}</p>
-          {migrationCount !== null && (
-            <p className="text-sm text-neutral-500">
-              {migrationCount} migration{migrationCount > 1 ? "s" : ""} appliquée
-              {migrationCount > 1 ? "s" : ""}
-            </p>
-          )}
-        </>
+    <AppShell>
+      {error && (
+        <div className="border-b border-line bg-surface px-8 py-3 text-[13px] text-danger">
+          {error}
+        </div>
       )}
-    </main>
+      {page === "dashboard" && <DashboardPage />}
+      {page === "clients" && <ClientsPage />}
+      {page === "sessions" && <SessionsPage />}
+      {page === "products" && <ProductsPage />}
+    </AppShell>
   );
 }
 
