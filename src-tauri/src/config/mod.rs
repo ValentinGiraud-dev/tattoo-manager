@@ -38,14 +38,23 @@ impl AppPaths {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct WindowSettings {
     pub width: u32,
     pub height: u32,
 }
 
+impl Default for WindowSettings {
+    fn default() -> Self {
+        Self {
+            width: 1200,
+            height: 800,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
     pub locale: String,
     pub window: WindowSettings,
@@ -55,10 +64,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             locale: "fr".to_string(),
-            window: WindowSettings {
-                width: 1200,
-                height: 800,
-            },
+            window: WindowSettings::default(),
         }
     }
 }

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { AppShell } from "./components/app-shell";
+import { UpdateNotice } from "./components/update-notice";
 import ClientsPage from "./features/clients/clients-page";
 import DashboardPage from "./features/dashboard/dashboard-page";
 import ProductsPage from "./features/products/products-page";
@@ -17,6 +18,7 @@ function App() {
 
   return (
     <AppShell>
+      <UpdateNotice />
       {error && (
         <div className="border-b border-line bg-surface px-8 py-3 text-[13px] text-danger">
           {error}

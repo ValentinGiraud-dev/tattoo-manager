@@ -5,9 +5,7 @@ use crate::config::{AppPaths, AppPathsDto, AppSettings};
 use crate::models::{Client, Product};
 use crate::services::clients::{self, ClientInput};
 use crate::services::products::{self, ProductInput};
-use crate::services::session_products::{
-    self, ProductSessionItem, SessionProductItem,
-};
+use crate::services::session_products::{self, ProductSessionItem, SessionProductItem};
 use crate::services::sessions::{self, SessionInput, SessionListItem};
 use crate::{config, services};
 

@@ -69,7 +69,9 @@ fn normalize(input: ProductInput) -> Result<ProductInput, ProductError> {
         return Err(ProductError::Invalid("Le numéro de lot est obligatoire"));
     }
     if expiration_date.is_empty() {
-        return Err(ProductError::Invalid("La date d'expiration est obligatoire"));
+        return Err(ProductError::Invalid(
+            "La date d'expiration est obligatoire",
+        ));
     }
     if !is_iso_date(&expiration_date) {
         return Err(ProductError::Invalid(

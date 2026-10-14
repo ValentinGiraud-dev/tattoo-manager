@@ -72,13 +72,14 @@ fn is_iso_date(value: &str) -> bool {
 }
 
 async fn ensure_client_exists(pool: &SqlitePool, client_id: &str) -> Result<(), SessionError> {
-    let exists: Option<i64> =
-        sqlx::query_scalar("SELECT 1 FROM clients WHERE id = ? LIMIT 1")
-            .bind(client_id)
-            .fetch_optional(pool)
-            .await?;
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM clients WHERE id = ? LIMIT 1")
+        .bind(client_id)
+        .fetch_optional(pool)
+        .await?;
     if exists.is_none() {
-        return Err(SessionError::Invalid("Le client sélectionné est introuvable"));
+        return Err(SessionError::Invalid(
+            "Le client sélectionné est introuvable",
+        ));
     }
     Ok(())
 }

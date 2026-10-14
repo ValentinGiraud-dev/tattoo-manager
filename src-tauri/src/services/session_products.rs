@@ -56,11 +56,10 @@ pub struct ProductSessionItem {
 const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%S', 'now')";
 
 async fn ensure_session(pool: &SqlitePool, session_id: &str) -> Result<(), SessionProductError> {
-    let exists: Option<i64> =
-        sqlx::query_scalar("SELECT 1 FROM sessions WHERE id = ? LIMIT 1")
-            .bind(session_id)
-            .fetch_optional(pool)
-            .await?;
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM sessions WHERE id = ? LIMIT 1")
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await?;
     if exists.is_none() {
         return Err(SessionProductError::Invalid("La séance est introuvable"));
     }
@@ -68,11 +67,10 @@ async fn ensure_session(pool: &SqlitePool, session_id: &str) -> Result<(), Sessi
 }
 
 async fn ensure_product(pool: &SqlitePool, product_id: &str) -> Result<(), SessionProductError> {
-    let exists: Option<i64> =
-        sqlx::query_scalar("SELECT 1 FROM products WHERE id = ? LIMIT 1")
-            .bind(product_id)
-            .fetch_optional(pool)
-            .await?;
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM products WHERE id = ? LIMIT 1")
+        .bind(product_id)
+        .fetch_optional(pool)
+        .await?;
     if exists.is_none() {
         return Err(SessionProductError::Invalid("Le produit est introuvable"));
     }
