@@ -1,6 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useConfirm } from "../../components/use-confirm";
 import { DateSelector } from "../../components/date-selector";
+import { formatIsoDate, formatTimestamp } from "../../lib/format";
+import type { FormKind, Paperwork } from "../../stores/paperwork-store";
+import { ConsentFormView } from "./consent-form";
+import { HealthFormView } from "./health-form";
+import { SessionPaperwork } from "./session-paperwork";
 import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
 import { useClientsStore } from "../../stores/clients-store";
 import {
@@ -55,21 +60,6 @@ function StatusBadge({ status }: { status: SessionStatus }) {
   );
 }
 
-function formatIsoDate(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return value;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  return new Intl.DateTimeFormat("fr-FR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(date);
-}
-
-function formatTimestamp(value: string) {
-  return value.replace("T", " ").slice(0, 16);
-}
-
 function clientName(session: SessionListItem) {
   return `${session.clientFirstName} ${session.clientLastName}`;
 }
@@ -87,6 +77,8 @@ function SessionForm({
   const [saving, setSaving] = useState(false);
   const [date, setDate] = useState<string | null>(session?.date ?? null);
   const [dirty, setDirty] = useState(false);
+  /** Séance avec produits liés : le client est figé (règle vérifiée en Rust). */
+  const clientLocked = (session?.usageCount ?? 0) > 0;
   const confirm = useConfirm();
   const guardedLeave = useGuardedLeave();
   const currentYear = new Date().getFullYear();
@@ -106,7 +98,7 @@ function SessionForm({
       return;
     }
     const input: SessionInput = {
-      clientId: text("clientId").trim(),
+      clientId: clientLocked && session ? session.clientId : text("clientId").trim(),
       date,
       status,
       bodyArea: emptyToNull(text("bodyArea")),
@@ -179,7 +171,8 @@ function SessionForm({
           name="clientId"
           required
           defaultValue={session?.clientId ?? ""}
-          className={fieldClass}
+          disabled={clientLocked}
+          className={`${fieldClass} disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-fg-muted`}
         >
           <option value="" disabled>
             Choisir un client
@@ -190,6 +183,12 @@ function SessionForm({
             </option>
           ))}
         </select>
+        {clientLocked && (
+          <span className="mt-1.5 block text-[12.5px] font-normal text-fg-muted">
+            Des produits sont liés à cette séance : elle reste attachée à ce client pour la
+            traçabilité.
+          </span>
+        )}
       </label>
 
       <div>
@@ -275,7 +274,7 @@ function SessionForm({
 
 function SessionProducts({ session }: { session: SessionListItem }) {
   const sessionId = session.id;
-  const { listSessionUsages, listLinkable, linkToSession } = useProductsStore();
+  const { listSessionUsages, listLinkable, linkToSession, voidUsage } = useProductsStore();
   const confirm = useConfirm();
   const [linked, setLinked] = useState<SessionUsageItem[]>([]);
   const [linkable, setLinkable] = useState<LinkableItem[]>([]);
@@ -356,7 +355,9 @@ function SessionProducts({ session }: { session: SessionListItem }) {
       ],
       body: "Le lien restera dans l'historique de traçabilité : il ne pourra pas être supprimé.",
       warning: item.expired
-        ? `Ce lot est périmé depuis le ${formatIsoDate(item.expirationDate)}.`
+        ? item.openedAt
+          ? `Limite d'utilisation dépassée : à utiliser jusqu'au ${formatIsoDate(item.usefulUntil)} (ouverture + durée après ouverture, ou péremption).`
+          : `Lot périmé : date de péremption ${formatIsoDate(item.expirationDate)}.`
         : undefined,
       confirmLabel: item.expired ? "Lier quand même" : "Lier à la séance",
       cancelLabel: "Retour",
@@ -381,13 +382,47 @@ function SessionProducts({ session }: { session: SessionListItem }) {
     }
   }
 
+  async function cancelLink(item: SessionUsageItem) {
+    const result = await confirm({
+      title: "Annuler ce lien ?",
+      details: [
+        `${item.name} · lot ${item.lotNumber}`,
+        item.singleUse
+          ? `Usage unique · ${item.quantity} remis en stock`
+          : "Usage multiple · le stock ne change pas",
+        `Séance : ${clientName(session)} · ${formatIsoDate(session.date)}`,
+      ],
+      body: "Le lien reste visible dans l'historique, barré, avec le motif. Il ne pourra pas être rétabli : il faudra lier un autre lot ou une autre pièce.",
+      reason: {
+        label: "Motif",
+        required: true,
+        placeholder: "Ex. mauvais lot sélectionné",
+      },
+      confirmLabel: "Annuler le lien",
+      cancelLabel: "Garder le lien",
+      tone: "danger",
+    });
+    if (!result?.reason) return;
+    setLinking(true);
+    setError(null);
+    try {
+      await voidUsage(item.id, result.reason);
+      await refreshLinked();
+      if (pickerOpen) await refreshLinkable();
+    } catch (voidError) {
+      setError(String(voidError));
+    } finally {
+      setLinking(false);
+    }
+  }
+
   return (
     <section>
       <div className="mb-2 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-[14px] font-medium">Produits utilisés</h2>
           <p className="mt-0.5 text-[12.5px] text-fg-muted">
-            Traçabilité : les liens ne se suppriment pas.
+            Traçabilité : un lien ne se supprime pas, il s&apos;annule avec un motif.
           </p>
         </div>
         <button type="button" onClick={() => setPickerOpen((open) => !open)} className={btnGhost}>
@@ -474,19 +509,52 @@ function SessionProducts({ session }: { session: SessionListItem }) {
               key={item.id}
               className={index > 0 ? "border-t border-line px-4 py-3" : "px-4 py-3"}
             >
-              <p className="text-[14px] font-medium">{item.name}</p>
-              <p className="mt-0.5 text-[12.5px] text-fg-muted">
-                Lot {item.lotNumber}
-                {" · "}
-                {item.singleUse
-                  ? `Usage unique · ${item.quantity}`
-                  : item.openedAt
-                    ? "Usage multiple · ouvert"
-                    : "Usage multiple · scellé"}
-                {" · exp. "}
-                {formatIsoDate(item.expirationDate)}
-                {item.expired ? " · Périmé" : ""}
-              </p>
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <p
+                    className={`text-[14px] font-medium ${item.voidReason ? "text-fg-muted line-through" : ""}`}
+                  >
+                    {item.name}
+                  </p>
+                  <p className="mt-0.5 text-[12.5px] text-fg-muted">
+                    Lot {item.lotNumber}
+                    {" · "}
+                    {item.singleUse
+                      ? item.voidReason
+                        ? "Usage unique"
+                        : `Usage unique · ${item.quantity}`
+                      : item.openedAt
+                        ? "Usage multiple · ouvert"
+                        : "Usage multiple · scellé"}
+                    {" · à utiliser jusqu'au "}
+                    {formatIsoDate(item.usefulUntil)}
+                  </p>
+                  {item.voidReason ? (
+                    <p className="mt-1 text-[12.5px] text-fg-muted">
+                      Lien annulé
+                      {item.voidedAt ? ` le ${formatTimestamp(item.voidedAt)}` : ""} :{" "}
+                      {item.voidReason}
+                    </p>
+                  ) : (
+                    item.expired && (
+                      <p className="mt-1 text-[12.5px] text-warning">
+                        <span aria-hidden="true">⚠︎ </span>
+                        Périmé à la date de la séance.
+                      </p>
+                    )
+                  )}
+                </div>
+                {!item.voidReason && (
+                  <button
+                    type="button"
+                    disabled={linking}
+                    onClick={() => void cancelLink(item)}
+                    className={btnGhost}
+                  >
+                    Annuler le lien
+                  </button>
+                )}
+              </div>
             </li>
           ))}
         </ul>
@@ -504,6 +572,21 @@ function SessionDetail({
   onEdit: () => void;
   onBack: () => void;
 }) {
+  const [form, setForm] = useState<{ kind: FormKind; paperwork: Paperwork } | null>(null);
+  const [paperworkVersion, setPaperworkVersion] = useState(0);
+
+  if (form) {
+    const close = () => {
+      setForm(null);
+      setPaperworkVersion((version) => version + 1);
+    };
+    return form.kind === "HEALTH" ? (
+      <HealthFormView paperwork={form.paperwork} onDone={close} />
+    ) : (
+      <ConsentFormView paperwork={form.paperwork} onDone={close} />
+    );
+  }
+
   const rows: [string, string | null][] = [
     ["Client", clientName(session)],
     ["Date", formatIsoDate(session.date)],
@@ -546,13 +629,18 @@ function SessionDetail({
           </div>
         ))}
       </dl>
+      <SessionPaperwork
+        key={paperworkVersion}
+        sessionId={session.id}
+        onOpenForm={(kind, paperwork) => setForm({ kind, paperwork })}
+      />
       <SessionProducts session={session} />
     </div>
   );
 }
 
 export default function SessionsPage() {
-  const { sessions, search, loading, error, load } = useSessionsStore();
+  const { sessions, search, loading, error, load, get: getSession } = useSessionsStore();
   const [view, setView] = useState<View>({ kind: "list" });
 
   useEffect(() => {
@@ -580,7 +668,13 @@ export default function SessionsPage() {
     return (
       <SessionDetail
         session={view.session}
-        onEdit={() => setView({ kind: "form", session: view.session })}
+        onEdit={() => {
+          // Recharger : des produits ont pu être liés depuis l'ouverture de la fiche.
+          const current = view.session;
+          void getSession(current.id)
+            .then((fresh) => setView({ kind: "form", session: fresh }))
+            .catch(() => setView({ kind: "form", session: current }));
+        }}
         onBack={() => setView({ kind: "list" })}
       />
     );

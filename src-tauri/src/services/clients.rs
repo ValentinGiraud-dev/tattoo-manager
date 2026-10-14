@@ -11,6 +11,9 @@ pub struct ClientInput {
     pub first_name: String,
     pub last_name: String,
     pub birth_date: Option<String>,
+    /// Absent des anciens appels : traité comme vide.
+    #[serde(default)]
+    pub address: Option<String>,
     pub email: Option<String>,
     pub phone: Option<String>,
     pub notes: Option<String>,
@@ -54,6 +57,7 @@ fn normalize(input: ClientInput) -> Result<ClientInput, ClientError> {
         first_name,
         last_name,
         birth_date: clean(input.birth_date),
+        address: clean(input.address),
         email: clean(input.email),
         phone: clean(input.phone),
         notes: clean(input.notes),
@@ -96,14 +100,16 @@ pub async fn create_client(pool: &SqlitePool, input: ClientInput) -> Result<Clie
     let input = normalize(input)?;
     let sql = format!(
         "INSERT INTO clients
-            (id, first_name, last_name, birth_date, email, phone, notes, created_at, updated_at)
-         VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, {NOW}, {NOW})
+            (id, first_name, last_name, birth_date, address, email, phone, notes,
+             created_at, updated_at)
+         VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, {NOW}, {NOW})
          RETURNING *"
     );
     let client = sqlx::query_as::<_, Client>(&sql)
         .bind(input.first_name)
         .bind(input.last_name)
         .bind(input.birth_date)
+        .bind(input.address)
         .bind(input.email)
         .bind(input.phone)
         .bind(input.notes)
@@ -120,7 +126,8 @@ pub async fn update_client(
     let input = normalize(input)?;
     let sql = format!(
         "UPDATE clients
-         SET first_name = ?, last_name = ?, birth_date = ?, email = ?, phone = ?, notes = ?,
+         SET first_name = ?, last_name = ?, birth_date = ?, address = ?, email = ?, phone = ?,
+             notes = ?,
              updated_at = {NOW}
          WHERE id = ?
          RETURNING *"
@@ -129,6 +136,7 @@ pub async fn update_client(
         .bind(input.first_name)
         .bind(input.last_name)
         .bind(input.birth_date)
+        .bind(input.address)
         .bind(input.email)
         .bind(input.phone)
         .bind(input.notes)

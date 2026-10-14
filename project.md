@@ -305,6 +305,8 @@ migrations/
 ├── 004_session_products.sql
 ├── 005_session_indexes.sql
 ├── 006_lots_and_stock.sql
+├── 007_session_usage_voids.sql
+├── 008_session_paperwork.sql
 └── ...
 ```
 
@@ -525,7 +527,7 @@ SessionUsage
 └── created_at
 ```
 
-Exactement un des deux liens est rempli. Ces liens ne se suppriment pas.
+Exactement un des deux liens est rempli. Ces liens ne se suppriment pas : un lien erroné s'annule avec un motif (`session_usage_voids`), et reste visible dans l'historique.
 
 ## Évolution — fiche produit
 
@@ -921,16 +923,23 @@ La roadmap est indicative et pourra changer.
 - [x] Lien `session_usages` : lot pour l'usage unique, flacon pour l'encre
 - [x] Produits d'une séance
 - [x] Séances d'un lot
-- [x] Produits d'un client
+- [x] Produits d'un client (fiche client : séances et produits utilisés)
+- [x] Annulation motivée d'un lien séance–produit
+- [x] Verrous : client d'une séance liée, identité d'un lot utilisé, date d'ouverture d'une pièce utilisée
+- [x] Péremption calculée en Rust (date locale, ouverture + durée, évaluée à la date de la séance)
 
 
 
 ## Phase 5 — Questionnaires
 
-- [ ] Questionnaire de consentement, lié à la séance
-- [ ] Questionnaire de santé, lié à la séance
-- [ ] Saisie ou import manuel
-- [ ] Export
+- [x] Questionnaire de consentement, lié à la séance
+- [x] Questionnaire de santé, lié à la séance
+- [x] Saisie dans l'app (la tatoueuse avec le client)
+- [x] Export : PDF d'origine pré-rempli, à imprimer et faire signer
+- [x] Scan ou photo du document signé joint à la séance ; réponses figées ensuite
+- [x] Alerte client mineur (âge à la date de la séance) et représentant légal
+- [x] Fiche « Conseils de cicatrisation » à remettre
+- [x] Paramètres de l'atelier (professionnel, ville)
 
 
 

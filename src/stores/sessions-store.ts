@@ -15,6 +15,8 @@ export interface SessionListItem {
   updatedAt: string;
   clientFirstName: string;
   clientLastName: string;
+  /** Nombre de produits liés. Au-delà de zéro, le client ne change plus. */
+  usageCount: number;
 }
 
 export interface SessionInput {
@@ -34,6 +36,7 @@ interface SessionsState {
   load: (search?: string) => Promise<void>;
   create: (input: SessionInput) => Promise<SessionListItem>;
   update: (id: string, input: SessionInput) => Promise<SessionListItem>;
+  get: (id: string) => Promise<SessionListItem>;
 }
 
 export const useSessionsStore = create<SessionsState>((set, get) => ({
@@ -60,4 +63,5 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     await get().load();
     return session;
   },
+  get: (id) => invoke<SessionListItem>("get_session", { id }),
 }));

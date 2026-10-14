@@ -1,7 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { DateSelector } from "../../components/date-selector";
+import { formatIsoDate, formatTimestamp } from "../../lib/format";
 import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
 import { useClientsStore, type Client, type ClientInput } from "../../stores/clients-store";
+import { ClientHistory } from "./client-history";
 
 type View =
   { kind: "list" } | { kind: "form"; client?: Client } | { kind: "detail"; client: Client };
@@ -20,22 +22,6 @@ function initials(client: Client) {
   return `${client.firstName.charAt(0)}${client.lastName.charAt(0)}`.toUpperCase();
 }
 
-function formatDate(value: string) {
-  return value.replace("T", " ").slice(0, 16);
-}
-
-function formatBirthDate(value: string | null) {
-  if (!value) return null;
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return value;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  return new Intl.DateTimeFormat("fr-FR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(date);
-}
-
 function ClientForm({ client, onDone }: { client?: Client; onDone: (saved?: Client) => void }) {
   const { create, update } = useClientsStore();
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +38,7 @@ function ClientForm({ client, onDone }: { client?: Client; onDone: (saved?: Clie
       firstName: text("firstName").trim(),
       lastName: text("lastName").trim(),
       birthDate: emptyToNull(text("birthDate")),
+      address: emptyToNull(text("address")),
       email: emptyToNull(text("email")),
       phone: emptyToNull(text("phone")),
       notes: emptyToNull(text("notes")),
@@ -119,6 +106,16 @@ function ClientForm({ client, onDone }: { client?: Client; onDone: (saved?: Clie
         />
       </div>
       <label className={labelClass}>
+        Adresse
+        <textarea
+          name="address"
+          rows={2}
+          defaultValue={client?.address ?? ""}
+          placeholder="Demandée par le consentement"
+          className={fieldClass}
+        />
+      </label>
+      <label className={labelClass}>
         Email
         <input
           name="email"
@@ -164,12 +161,13 @@ function ClientDetail({
   onBack: () => void;
 }) {
   const rows: [string, string | null][] = [
-    ["Date de naissance", formatBirthDate(client.birthDate)],
+    ["Date de naissance", client.birthDate ? formatIsoDate(client.birthDate) : null],
+    ["Adresse", client.address],
     ["Email", client.email],
     ["Téléphone", client.phone],
     ["Notes", client.notes],
-    ["Créé le", formatDate(client.createdAt)],
-    ["Modifié le", formatDate(client.updatedAt)],
+    ["Créé le", formatTimestamp(client.createdAt)],
+    ["Modifié le", formatTimestamp(client.updatedAt)],
   ];
 
   return (
@@ -205,6 +203,7 @@ function ClientDetail({
           </div>
         ))}
       </dl>
+      <ClientHistory key={client.id} clientId={client.id} />
     </div>
   );
 }

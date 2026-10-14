@@ -7,6 +7,7 @@ pub struct Client {
     pub first_name: String,
     pub last_name: String,
     pub birth_date: Option<String>,
+    pub address: Option<String>,
     pub email: Option<String>,
     pub phone: Option<String>,
     pub notes: Option<String>,

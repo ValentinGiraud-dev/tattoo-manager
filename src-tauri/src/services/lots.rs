@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use super::error::LotError;
+use super::expiry;
 use super::sql::{self, NOW};
 use super::stock::{self, MovementDraft, MovementType};
 
@@ -60,7 +61,12 @@ SELECT
     (
         SELECT COUNT(*) FROM stock_movements m WHERE m.lot_id = l.id
     ) AS movement_count,
-    CASE WHEN l.expiration_date < date('now') THEN 1 ELSE 0 END AS expired
+    (
+        SELECT COUNT(DISTINCT su.session_id)
+        FROM session_usages su
+        LEFT JOIN units u ON u.id = su.unit_id
+        WHERE su.lot_id = l.id OR u.lot_id = l.id
+    ) AS session_count
 FROM lots l
 "#;
 
@@ -81,7 +87,18 @@ pub struct LotSummary {
     pub sealed_count: i64,
     pub opened_count: i64,
     pub movement_count: i64,
+    /// Nombre de séances où ce lot (ou une de ses pièces) a servi.
+    pub session_count: i64,
+    /// Calculé en Rust (`expiry`), pas en SQL.
+    #[sqlx(skip)]
     pub expired: bool,
+}
+
+impl LotSummary {
+    fn with_expiry(mut self, today: chrono::NaiveDate) -> Self {
+        self.expired = expiry::is_expired(&self.expiration_date, today);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -207,7 +224,8 @@ pub async fn list_lots(
         .bind(pattern)
         .fetch_all(pool)
         .await?;
-    Ok(lots)
+    let today = expiry::today();
+    Ok(lots.into_iter().map(|lot| lot.with_expiry(today)).collect())
 }
 
 pub async fn get_lot(pool: &SqlitePool, id: &str) -> Result<LotSummary, LotError> {
@@ -216,6 +234,7 @@ pub async fn get_lot(pool: &SqlitePool, id: &str) -> Result<LotSummary, LotError
         .bind(id)
         .fetch_optional(pool)
         .await?
+        .map(|lot| lot.with_expiry(expiry::today()))
         .ok_or(LotError::NotFound)
 }
 
@@ -238,7 +257,7 @@ pub async fn find_lot(
         .bind(lot_number)
         .fetch_optional(pool)
         .await?;
-    Ok(lot)
+    Ok(lot.map(|lot| lot.with_expiry(expiry::today())))
 }
 
 pub async fn create_lot(pool: &SqlitePool, input: CreateLotInput) -> Result<LotSummary, LotError> {
@@ -300,16 +319,42 @@ pub async fn create_lot(pool: &SqlitePool, input: CreateLotInput) -> Result<LotS
     get_lot(pool, &lot_id).await
 }
 
+/// Message affiché quand on tente de modifier l'identité d'un lot déjà tracé.
+pub(crate) const LOT_IDENTITY_LOCKED: &str = "Ce lot a déjà servi en séance : son nom, son numéro, sa péremption et sa durée après ouverture ne sont plus modifiables. Si une valeur est fausse, crée un nouveau lot avec les bonnes informations.";
+
+/// Vrai si le lot, ou une de ses pièces, est lié à au moins une séance.
+pub(crate) async fn lot_used_in_sessions(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    lot_id: &str,
+) -> Result<bool, LotError> {
+    let used: Option<i64> = sqlx::query_scalar(
+        "SELECT 1
+         FROM session_usages su
+         LEFT JOIN units u ON u.id = su.unit_id
+         WHERE su.lot_id = ?1 OR u.lot_id = ?1
+         LIMIT 1",
+    )
+    .bind(lot_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(used.is_some())
+}
+
 pub async fn update_lot(
     pool: &SqlitePool,
     id: &str,
     input: UpdateLotInput,
 ) -> Result<LotSummary, LotError> {
-    let single_use: Option<bool> = sqlx::query_scalar("SELECT single_use FROM lots WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
-    let Some(single_use) = single_use else {
+    let mut tx = pool.begin().await?;
+    let current: Option<(bool, String, String, String, Option<i64>)> = sqlx::query_as(
+        "SELECT single_use, name, lot_number, expiration_date, after_opening_months
+         FROM lots WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((single_use, name, lot_number, expiration_date, after_opening_months)) = current
+    else {
         return Err(LotError::NotFound);
     };
     let normalized = normalize_shared(
@@ -322,6 +367,16 @@ pub async fn update_lot(
         input.product_url,
     )?;
 
+    // Un lot déjà utilisé en séance garde son identité : ce sont ces valeurs
+    // qui figurent dans l'historique de traçabilité des clients.
+    let identity_changed = normalized.name != name
+        || normalized.lot_number != lot_number
+        || normalized.expiration_date != expiration_date
+        || normalized.after_opening_months != after_opening_months;
+    if identity_changed && lot_used_in_sessions(&mut tx, id).await? {
+        return Err(LotError::Invalid(LOT_IDENTITY_LOCKED));
+    }
+
     let conflict: Option<String> = sqlx::query_scalar(
         "SELECT id FROM lots
          WHERE name COLLATE NOCASE = ? AND lot_number COLLATE NOCASE = ? AND id != ?",
@@ -329,7 +384,7 @@ pub async fn update_lot(
     .bind(&normalized.name)
     .bind(&normalized.lot_number)
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await?;
     if conflict.is_some() {
         return Err(LotError::Invalid(
@@ -351,8 +406,9 @@ pub async fn update_lot(
         .bind(normalized.after_opening_months)
         .bind(&normalized.product_url)
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
     get_lot(pool, id).await
 }
 

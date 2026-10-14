@@ -1,12 +1,18 @@
 use sqlx::SqlitePool;
-use tauri::State;
+use std::path::{Path, PathBuf};
+
+use tauri::{AppHandle, State};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::config::{AppPaths, AppPathsDto, AppSettings};
 use crate::models::{Client, StockMovement};
 use crate::services::clients::{self, ClientInput};
 use crate::services::lots::{self, CreateLotInput, LotSummary, UpdateLotInput};
+use crate::services::paperwork::{
+    self, ConsentAnswers, DocumentKind, FormKind, HealthAnswers, Paperwork, SessionDocument,
+};
 use crate::services::session_usages::{
-    self, LinkSessionInput, LinkableItem, LotSessionItem, SessionUsageItem,
+    self, LinkSessionInput, LinkableItem, LotSessionItem, SessionUsageItem, VoidUsageInput,
 };
 use crate::services::sessions::{self, SessionInput, SessionListItem};
 use crate::services::stock::{self, RecordMovementInput};
@@ -250,6 +256,150 @@ pub async fn link_session_usage(
     input: LinkSessionInput,
 ) -> Result<SessionUsageItem, String> {
     session_usages::link_session(pool.inner(), input)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_client_sessions(
+    pool: State<'_, SqlitePool>,
+    client_id: String,
+) -> Result<Vec<SessionListItem>, String> {
+    sessions::list_client_sessions(pool.inner(), &client_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_client_usages(
+    pool: State<'_, SqlitePool>,
+    client_id: String,
+) -> Result<Vec<SessionUsageItem>, String> {
+    session_usages::list_client_usages(pool.inner(), &client_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn void_session_usage(
+    pool: State<'_, SqlitePool>,
+    input: VoidUsageInput,
+) -> Result<SessionUsageItem, String> {
+    session_usages::void_usage(pool.inner(), input)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_session_paperwork(
+    pool: State<'_, SqlitePool>,
+    session_id: String,
+) -> Result<Paperwork, String> {
+    paperwork::get_paperwork(pool.inner(), &session_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn save_health_form(
+    pool: State<'_, SqlitePool>,
+    session_id: String,
+    answers: HealthAnswers,
+) -> Result<Paperwork, String> {
+    paperwork::save_health(pool.inner(), &session_id, answers)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn save_consent_form(
+    pool: State<'_, SqlitePool>,
+    session_id: String,
+    answers: ConsentAnswers,
+) -> Result<Paperwork, String> {
+    paperwork::save_consent(pool.inner(), &session_id, answers)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Ouvre un fichier avec l'application par défaut (Aperçu pour un PDF).
+fn open_file(app: &AppHandle, path: &Path) -> Result<(), String> {
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|error| {
+            eprintln!("ouverture de fichier : {error}");
+            "Le fichier n'a pas pu être ouvert. Il se trouve dans le dossier documents de l'app."
+                .to_string()
+        })
+}
+
+#[tauri::command]
+pub async fn print_session_form(
+    app: AppHandle,
+    pool: State<'_, SqlitePool>,
+    paths: State<'_, AppPaths>,
+    session_id: String,
+    kind: FormKind,
+) -> Result<String, String> {
+    let settings = config::load_settings(paths.inner()).unwrap_or_default();
+    let path = paperwork::print_form(
+        pool.inner(),
+        &paths.documents,
+        &settings.studio,
+        &session_id,
+        kind,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    open_file(&app, &path)?;
+    Ok(path.display().to_string())
+}
+
+#[tauri::command]
+pub fn open_aftercare_sheet(app: AppHandle, paths: State<'_, AppPaths>) -> Result<(), String> {
+    let path = paperwork::aftercare_sheet(&paths.documents).map_err(|error| error.to_string())?;
+    open_file(&app, &path)
+}
+
+#[tauri::command]
+pub async fn attach_session_document(
+    pool: State<'_, SqlitePool>,
+    paths: State<'_, AppPaths>,
+    session_id: String,
+    kind: DocumentKind,
+    source_path: String,
+) -> Result<SessionDocument, String> {
+    paperwork::attach_document(
+        pool.inner(),
+        &paths.documents,
+        &session_id,
+        kind,
+        &PathBuf::from(source_path),
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn open_session_document(
+    app: AppHandle,
+    pool: State<'_, SqlitePool>,
+    paths: State<'_, AppPaths>,
+    document_id: String,
+) -> Result<(), String> {
+    let path = paperwork::document_path(pool.inner(), &paths.documents, &document_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    open_file(&app, &path)
+}
+
+#[tauri::command]
+pub async fn void_session_document(
+    pool: State<'_, SqlitePool>,
+    document_id: String,
+    reason: String,
+) -> Result<SessionDocument, String> {
+    paperwork::void_document(pool.inner(), &document_id, &reason)
         .await
         .map_err(|error| error.to_string())
 }

@@ -29,7 +29,7 @@ Tracink contient des données personnelles et, avec les questionnaires, des donn
 ## Sauvegardes
 
 - Une sauvegarde contient tout. Elle reste dans le dossier de l'app ou dans un dossier choisi par l'utilisatrice.
-- Chiffrement de la base et verrouillage de l'app : prévus avant l'arrivée des questionnaires de santé.
+- La base contient désormais des réponses de santé et le dossier `documents/` des documents signés. Chiffrement de la base et des documents, et verrouillage de l'app : prochaine priorité sécurité. En attendant, FileVault doit être actif sur le Mac.
 
 ## Secrets
 

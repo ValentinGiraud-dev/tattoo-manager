@@ -6,6 +6,7 @@ import ClientsPage from "./features/clients/clients-page";
 import DashboardPage from "./features/dashboard/dashboard-page";
 import ProductsPage from "./features/products/products-page";
 import SessionsPage from "./features/sessions/sessions-page";
+import SettingsPage from "./features/settings/settings-page";
 import { useSettingsStore } from "./stores/settings-store";
 import { useUIStore } from "./stores/ui-store";
 
@@ -30,6 +31,7 @@ function App() {
         {page === "clients" && <ClientsPage />}
         {page === "sessions" && <SessionsPage />}
         {page === "products" && <ProductsPage />}
+        {page === "settings" && <SettingsPage />}
       </AppShell>
     </ConfirmProvider>
   );

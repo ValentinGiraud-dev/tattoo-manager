@@ -245,6 +245,26 @@ pub async fn undo_movement(pool: &sqlx::SqlitePool, movement_id: &str) -> Result
     .ok_or(LotError::NotFound)?;
 
     let mut tx = pool.begin().await?;
+    if let Some(session_id) = &movement.session_id {
+        // Un lien annulé a déjà rendu son stock : défaire ses mouvements
+        // ferait réapparaître une consommation sur un lien annulé.
+        let voided: Option<i64> = sqlx::query_scalar(
+            "SELECT 1
+             FROM session_usages su
+             INNER JOIN session_usage_voids v ON v.session_usage_id = su.id
+             WHERE su.session_id = ? AND su.lot_id = ?
+             LIMIT 1",
+        )
+        .bind(session_id)
+        .bind(&movement.lot_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if voided.is_some() {
+            return Err(LotError::Invalid(
+                "Ce mouvement appartient à un lien de séance annulé : il ne peut plus être défait",
+            ));
+        }
+    }
     apply_movement(
         &mut tx,
         MovementDraft {

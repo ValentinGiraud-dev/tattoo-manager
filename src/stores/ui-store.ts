@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type AppPage = "dashboard" | "clients" | "sessions" | "products";
+export type AppPage = "dashboard" | "clients" | "sessions" | "products" | "settings";
 
 type UIState = {
   page: AppPage;

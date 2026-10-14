@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useConfirm } from "../../components/use-confirm";
 import { DateSelector } from "../../components/date-selector";
+import { formatIsoDate, formatTimestamp } from "../../lib/format";
 import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
 import {
   useProductsStore,
@@ -76,45 +77,6 @@ const EXIT_LABELS: Record<string, string> = {
   RETURN: "Renvoyé",
 };
 
-function formatIsoDate(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return value;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  return new Intl.DateTimeFormat("fr-FR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(date);
-}
-
-function formatTimestamp(value: string) {
-  return value.replace("T", " ").slice(0, 16);
-}
-
-function addMonthsIso(iso: string, months: number): string | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  if (!match) return null;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  date.setMonth(date.getMonth() + months);
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function usefulUntil(
-  expirationDate: string,
-  openedAt: string | null,
-  afterOpeningMonths: number | null,
-): string {
-  let limit = expirationDate;
-  if (openedAt && afterOpeningMonths) {
-    const afterOpen = addMonthsIso(openedAt, afterOpeningMonths);
-    if (afterOpen && afterOpen < limit) limit = afterOpen;
-  }
-  return limit;
-}
-
 function stockLabel(lot: LotSummary): string {
   if (lot.singleUse) {
     if (lot.movementCount === 0) return "Stock non renseigné";
@@ -142,6 +104,9 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
   const [quantity, setQuantity] = useState("1");
   const currentYear = new Date().getFullYear();
   const locked = existing != null;
+  /** Lot déjà utilisé en séance : son identité est figée (règle vérifiée en Rust). */
+  const identityLocked = (lot?.sessionCount ?? 0) > 0;
+  const fieldClassLocked = `${fieldClass} disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-fg-muted`;
   const [submitted, setSubmitted] = useState(false);
   const guardedLeave = useGuardedLeave();
   const dirty =
@@ -247,6 +212,14 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
         </p>
       )}
 
+      {identityLocked && lot && (
+        <p className="rounded-md border border-line bg-surface px-3 py-2 text-[13px] text-fg-muted">
+          Ce lot a servi dans {lot.sessionCount} séance{lot.sessionCount > 1 ? "s" : ""}. Son nom,
+          son numéro, sa péremption et sa durée après ouverture figurent dans l&apos;historique de
+          traçabilité : ils ne sont plus modifiables. Si une valeur est fausse, crée un nouveau lot.
+        </p>
+      )}
+
       <label className={labelClass}>
         Nom *
         <input
@@ -257,8 +230,9 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
             setExisting(null);
           }}
           onBlur={() => void lookup()}
+          disabled={identityLocked}
           placeholder="Ex. Encre noire, aiguille 3RL"
-          className={fieldClass}
+          className={fieldClassLocked}
         />
       </label>
 
@@ -272,7 +246,8 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
             setExisting(null);
           }}
           onBlur={() => void lookup()}
-          className={fieldClass}
+          disabled={identityLocked}
+          className={fieldClassLocked}
         />
         <p className="mt-1.5 text-[12.5px] text-fg-muted">
           Une boîte qui mélange plusieurs tailles se saisit en un lot par taille, avec le même
@@ -321,7 +296,7 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
           placeholder="Choisir la date d'expiration"
           minYear={currentYear - 5}
           maxYear={currentYear + 20}
-          disabled={locked}
+          disabled={locked || identityLocked}
         />
       </div>
 
@@ -349,9 +324,9 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
             step={1}
             value={afterOpeningMonths}
             onChange={(event) => setAfterOpeningMonths(event.target.value)}
-            disabled={locked}
+            disabled={locked || identityLocked}
             placeholder="Ex. 12"
-            className={fieldClass}
+            className={fieldClassLocked}
           />
         </label>
       )}
@@ -706,10 +681,6 @@ function LotDetail({
           ) : (
             <ul className="overflow-hidden rounded-lg border border-line bg-surface">
               {units.map((unit, index) => {
-                const limit =
-                  unit.openedAt != null
-                    ? usefulUntil(lot.expirationDate, unit.openedAt, lot.afterOpeningMonths)
-                    : null;
                 return (
                   <li
                     key={unit.id}
@@ -722,8 +693,18 @@ function LotDetail({
                           ? `Ouvert le ${formatIsoDate(unit.openedAt)}`
                           : "Scellé"
                         : (EXIT_LABELS[unit.exitType ?? ""] ?? "Sorti")}
-                      {limit ? ` · limite ${formatIsoDate(limit)}` : ""}
+                      {unit.inStock && unit.openedAt
+                        ? ` · à utiliser jusqu'au ${formatIsoDate(unit.usefulUntil)}`
+                        : ""}
                     </p>
+                    {unit.inStock && unit.expired && (
+                      <p className="mt-1.5 text-[12.5px] text-warning">
+                        <span aria-hidden="true">⚠︎ </span>
+                        {unit.openedAt
+                          ? "Délai après ouverture ou péremption dépassé."
+                          : "Date de péremption dépassée."}
+                      </p>
+                    )}
                     {!unit.inStock && unit.exitMovementId && (
                       <button
                         type="button"
@@ -740,39 +721,47 @@ function LotDetail({
                     )}
                     {unit.inStock && (
                       <div className="mt-3 flex flex-col gap-3">
-                        <div>
-                          <label className={labelClass} htmlFor={`open-${unit.id}`}>
-                            Ouvert le
-                          </label>
-                          <DateSelector
-                            id={`open-${unit.id}`}
-                            value={openDates[unit.id] ?? unit.openedAt}
-                            onChange={(value) =>
-                              setOpenDates((current) => ({ ...current, [unit.id]: value }))
-                            }
-                            placeholder="Choisir la date d'ouverture"
-                            minYear={currentYear - 10}
-                            maxYear={currentYear + 1}
-                          />
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            className={btnPrimary}
-                            onClick={() => {
-                              const date = openDates[unit.id];
-                              if (!date) {
-                                setError("La date d'ouverture est obligatoire");
-                                return;
+                        {unit.usedInSessions && unit.openedAt ? (
+                          <p className="text-[12.5px] text-fg-muted">
+                            Date d&apos;ouverture figée : la pièce a déjà servi en séance.
+                          </p>
+                        ) : (
+                          <div>
+                            <label className={labelClass} htmlFor={`open-${unit.id}`}>
+                              Ouvert le
+                            </label>
+                            <DateSelector
+                              id={`open-${unit.id}`}
+                              value={openDates[unit.id] ?? unit.openedAt}
+                              onChange={(value) =>
+                                setOpenDates((current) => ({ ...current, [unit.id]: value }))
                               }
-                              void run(async () => {
-                                await openUnit(unit.id, date);
-                                await refresh();
-                              });
-                            }}
-                          >
-                            Enregistrer l&apos;ouverture
-                          </button>
+                              placeholder="Choisir la date d'ouverture"
+                              minYear={currentYear - 10}
+                              maxYear={currentYear}
+                            />
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                          {!(unit.usedInSessions && unit.openedAt) && (
+                            <button
+                              type="button"
+                              className={btnPrimary}
+                              onClick={() => {
+                                const date = openDates[unit.id];
+                                if (!date) {
+                                  setError("La date d'ouverture est obligatoire");
+                                  return;
+                                }
+                                void run(async () => {
+                                  await openUnit(unit.id, date);
+                                  await refresh();
+                                });
+                              }}
+                            >
+                              Enregistrer l&apos;ouverture
+                            </button>
+                          )}
                           {(
                             [
                               ["CONSUMPTION", "Terminé"],
@@ -875,6 +864,7 @@ function LotDetail({
                   {" · "}
                   {STATUS_LABELS[item.status] ?? item.status}
                   {item.quantity > 0 ? ` · ${item.quantity}` : ""}
+                  {item.voidReason ? ` · lien annulé : ${item.voidReason}` : ""}
                 </p>
               </li>
             ))}

@@ -30,6 +30,8 @@ pub struct SessionListItem {
     pub updated_at: String,
     pub client_first_name: String,
     pub client_last_name: String,
+    /// Nombre de produits liés. Au-delà de zéro, le client ne change plus.
+    pub usage_count: i64,
 }
 
 #[derive(Debug)]
@@ -97,6 +99,9 @@ async fn normalize(pool: &SqlitePool, input: SessionInput) -> Result<SessionInpu
     })
 }
 
+/// Message affiché quand on tente de changer le client d'une séance qui a des produits liés.
+pub(crate) const SESSION_CLIENT_LOCKED: &str = "Cette séance a des produits liés : elle ne peut plus changer de client. Si la séance a été créée pour le mauvais client, crée une nouvelle séance pour le bon client.";
+
 const LIST_SELECT: &str = "SELECT
     s.id,
     s.client_id,
@@ -108,7 +113,8 @@ const LIST_SELECT: &str = "SELECT
     s.created_at,
     s.updated_at,
     c.first_name AS client_first_name,
-    c.last_name AS client_last_name
+    c.last_name AS client_last_name,
+    (SELECT COUNT(*) FROM session_usages su WHERE su.session_id = s.id) AS usage_count
  FROM sessions s
  INNER JOIN clients c ON c.id = s.client_id";
 
@@ -176,6 +182,26 @@ pub async fn update_session(
     input: SessionInput,
 ) -> Result<SessionListItem, SessionError> {
     let input = normalize(pool, input).await?;
+
+    // Les produits liés appartiennent à l'historique de ce client : la séance
+    // ne peut plus être déplacée vers un autre client.
+    let current_client: Option<String> =
+        sqlx::query_scalar("SELECT client_id FROM sessions WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+    let current_client = current_client.ok_or(SessionError::NotFound)?;
+    if current_client != input.client_id {
+        let linked: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM session_usages WHERE session_id = ? LIMIT 1")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?;
+        if linked.is_some() {
+            return Err(SessionError::Invalid(SESSION_CLIENT_LOCKED));
+        }
+    }
+
     let sql = format!(
         "UPDATE sessions
          SET client_id = ?, date = ?, status = ?, body_area = ?, description = ?, notes = ?,
@@ -195,4 +221,21 @@ pub async fn update_session(
         .await?;
     let updated_id = updated_id.ok_or(SessionError::NotFound)?;
     get_session(pool, &updated_id).await
+}
+
+/// Séances d'un client, de la plus récente à la plus ancienne.
+pub async fn list_client_sessions(
+    pool: &SqlitePool,
+    client_id: &str,
+) -> Result<Vec<SessionListItem>, SessionError> {
+    let sql = format!(
+        "{LIST_SELECT}
+         WHERE s.client_id = ?
+         ORDER BY s.date DESC, s.created_at DESC"
+    );
+    let sessions = sqlx::query_as::<_, SessionListItem>(&sql)
+        .bind(client_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(sessions)
 }

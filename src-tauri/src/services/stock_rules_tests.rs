@@ -385,6 +385,8 @@ async fn migration_copies_existing_products_without_inventing_needle_stock() {
     .unwrap();
 
     exec_migration(&db.pool, "006_lots_and_stock.sql").await;
+    // Les requêtes actuelles lisent aussi les tables des migrations suivantes.
+    exec_migration(&db.pool, "007_session_usage_voids.sql").await;
 
     let lots = lots::list_lots(&db.pool, None).await.unwrap();
     assert_eq!(lots.len(), 2);

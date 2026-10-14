@@ -9,10 +9,11 @@ Spec détaillée : `database-start.md`. Le schéma SQLite suit ce modèle. Hygi�
 
 ```text
 CLIENT 1──< SESSION ──< SESSION_USAGE >── LOT
+                │         └── SESSION_USAGE_VOID (0 ou 1, annulation motivée)
                 │                         │
                 │                         └── UNIT (pièce, usage multiple seulement)
-                ├── consent questionnaire (session_id)
-                └── health questionnaire (session_id)
+                ├── SESSION_FORM (kind HEALTH | CONSENT, une par type)
+                └── SESSION_DOCUMENT (scans signés et autres fichiers)
 
 LOT 1──< STOCK_MOVEMENT
 UNIT 1──< STOCK_MOVEMENT
@@ -26,8 +27,13 @@ UNIT 1──< STOCK_MOVEMENT
 - `units` : pièces d'un lot à usage multiple. `lot_id`, `created_at`, `updated_at` obligatoires. `opened_at` optionnel. Un lot usage unique n'en a aucune.
 - `stock_movements` : `lot_id`, `type`, `quantity`, `created_at` obligatoires. `unit_id`, `session_id`, `reason` optionnels. Types : `PURCHASE`, `CONSUMPTION`, `LOSS`, `EXPIRATION`, `RETURN`, `ADJUSTMENT`. La quantité affichée est la somme des mouvements. Elle n'est jamais stockée ni écrasée.
 - `session_usages` : `session_id`, `created_at`, et exactement un de `lot_id` ou `unit_id`. Ces liens ne se suppriment pas.
+- `session_usage_voids` : `session_usage_id` (unique), `reason` (obligatoire), `created_at`. Marque un lien comme annulé ; le lien reste.
 
-Les questionnaires ont un `session_id`. Leurs champs métier ne sont pas figés. Une séance a les siens ; un client n'a pas un questionnaire global.
+- `clients.address` : optionnelle, demandée par le consentement.
+- `session_forms` : `session_id`, `kind` (`HEALTH`, `CONSENT`), `form_version`, `answers` (JSON), `created_at`, `updated_at`. Unique par séance et type. Le JSON suit les structs Rust `HealthAnswers` et `ConsentAnswers` (`services/paperwork.rs`), qui sont la seule définition des questions. `form_version` = version du formulaire papier (`FORM_VERSION`).
+- `session_documents` : `session_id`, `kind` (`HEALTH_SIGNED`, `CONSENT_SIGNED`, `OTHER`), `stored_name`, `original_name`, `size_bytes`, `created_at`, `void_reason`, `voided_at`. Fichier copié dans `documents/<session_id>/`. Ne se supprime pas ; s'annule une fois avec un motif (un trigger refuse toute autre modification).
+
+Les questionnaires appartiennent à la séance ; un client n'a pas un questionnaire global.
 
 ## Stock
 
@@ -59,9 +65,12 @@ Ces règles protègent la traçabilité. Les services Rust les appliquent ; l'UI
 - Une séance qui a au moins un `session_usage` ne change plus de client.
 - Un lot qui a au moins un `session_usage` ne change plus de `name`, `lot_number`, `expiration_date` ni `single_use`. Une erreur de saisie se corrige par une action motivée et journalisée, pas par un `UPDATE` silencieux.
 - `single_use` ne change jamais après la création du lot.
-- Un lien séance–produit erroné ne se supprime pas : il s'annule par un enregistrement d'annulation avec motif (table à créer), et le stock est rétabli par un mouvement inverse.
-- Le statut « périmé » est calculé en Rust, en un seul endroit, avec la date locale du jour : `expiration_date` pour un lot, la plus proche de `expiration_date` et `opened_at + after_opening_months` pour une pièce ouverte. React n'en recalcule pas.
-- Aucun `DELETE` sur `clients`, `sessions`, `lots`, `units`, `stock_movements`, `session_usages`. Une future suppression RGPD passera par une anonymisation documentée.
+- Un lien séance–produit erroné ne se supprime pas : il s'annule dans `session_usage_voids` avec un motif (`session_usages::void_usage`). Pour un usage unique, le stock revient par un `ADJUSTMENT` lié à la séance. Un lien annulé ne se relie pas à la même séance et ses mouvements ne se défont plus.
+- Une pièce utilisée en séance garde sa date d'ouverture une fois renseignée. Une date d'ouverture n'est jamais dans le futur.
+- Le statut « périmé » est calculé en Rust, dans `services/expiry.rs` : `expiration_date` pour un lot, la plus proche de `expiration_date` et `opened_at + after_opening_months` pour une pièce ouverte (un jour qui n'existe pas est ramené à la fin du mois). En stock : évalué à la date locale du jour. Pour un produit lié : évalué à la date de la séance. React n'en recalcule pas.
+- Un document signé (`HEALTH_SIGNED` ou `CONSENT_SIGNED`) non annulé fige les réponses correspondantes : `save_health` / `save_consent` refusent. Pour corriger : annuler le document (motif), puis faire signer un nouveau formulaire.
+- « Mineur » se calcule en Rust (`paperwork::age_at`) à la date de la séance. Date de naissance absente : majorité inconnue, signalée à l'écran. Un mineur exige un représentant légal (lien, nom, prénom) dans le consentement.
+- Aucun `DELETE` sur `clients`, `sessions`, `lots`, `units`, `stock_movements`, `session_usages`, `session_forms`, `session_documents`. Une future suppression RGPD passera par une anonymisation documentée.
 
 ## Dates
 

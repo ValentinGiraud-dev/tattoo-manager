@@ -76,17 +76,20 @@ Skills tiers installés (`skills-lock.json`, ne pas les modifier : ils sont écr
 - Rédaction : `writing-guidelines`.
 - `ask-sonner`, `pick-ui-library` : le projet n'utilise pas de bibliothèque de composants. Ne pas ajouter `sonner` ou une lib UI sans accord explicite.
 
+## Formulaires papier
+
+Les PDF de l'atelier (`src-tauri/assets/forms/`) sont pré-remplis par superposition (`services/form_pdf.rs`), aux coordonnées des formulaires v1. Si la tatoueuse change un formulaire : ajouter le nouveau PDF (`…-v2.pdf`), relever les coordonnées (`pdftotext -bbox`), adapter les structs si des questions changent, incrémenter `FORM_VERSION`, et vérifier le rendu avec `TRACINK_PDF_SAMPLES=/tmp cargo test write_samples -- --ignored`. Les réponses déjà enregistrées gardent leur `form_version`.
+
 ## Dette connue (à ne pas aggraver)
 
 Ces écarts existent dans le code actuel. Ne pas les copier ; les corriger quand on travaille dans la zone.
 
-- `update_session` permet de changer le client d'une séance qui a des produits liés. Cible : refusé.
-- `update_lot` permet de modifier nom, numéro et péremption d'un lot déjà utilisé, sans trace. Cible : refusé ou motif journalisé.
-- Le statut « périmé » côté Rust ignore `opened_at + after_opening_months`. Le calcul existe seulement dans `products-page.tsx`. Cible : calcul unique en Rust.
-- Comparaisons de dates avec `date('now')` (UTC) au lieu de la date locale.
-- `open_unit` réécrit `opened_at` sans contrôle (date future acceptée) et même si la pièce a déjà servi en séance : l'historique de la date d'ouverture n'est pas gardé.
 - Pas encore de toast de succès : les écritures réussies ne sont signalées que par le rafraîchissement de l'écran.
 - Trois écrans appellent `setLoading(true)` dans un `useEffect` (avertissement ESLint `react-hooks/set-state-in-effect`, passé en `warn` en attendant).
-- `usefulUntil` et `addMonthsIso` dans `products-page.tsx` recalculent une règle métier côté React.
+- `STATUS_LABELS` des séances est recopié dans `sessions-page.tsx`, `products-page.tsx` et `client-history.tsx` : utiliser `SESSION_STATUS_LABELS` (`src/lib/labels.ts`).
+- Les classes de boutons et champs sont recopiées en tête de chaque écran ancien : utiliser `src/components/styles.ts`.
+- Base SQLite et dossier `documents/` non chiffrés alors qu'ils contiennent des données de santé (voir `security-privacy.mdc`).
+- Pas encore de navigation entre écrans (ex. ouvrir une séance depuis la fiche client).
+- Pas encore de journal d'audit générique (`audit_log`) : seules les annulations de liens et les mouvements de stock gardent une trace motivée.
 - Tables `products` et `session_products` conservées mais inutilisées depuis la migration 006.
 - Vitest et Playwright ne sont pas encore installés : pas de tests frontend.

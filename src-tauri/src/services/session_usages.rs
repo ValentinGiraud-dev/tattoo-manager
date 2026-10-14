@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use super::error::LotError;
+use super::expiry;
 use super::sql::{self, NOW};
 use super::stock::{self, MovementDraft, MovementType};
 
@@ -18,8 +19,32 @@ pub struct SessionUsageItem {
     pub expiration_date: String,
     pub single_use: bool,
     pub opened_at: Option<String>,
+    pub after_opening_months: Option<i64>,
     pub quantity: i64,
+    /// Date de la séance : la péremption d'un produit lié s'évalue à cette date.
+    pub session_date: String,
+    #[sqlx(skip)]
+    pub useful_until: String,
+    /// Périmé à la date de la séance (pas à la date du jour).
+    #[sqlx(skip)]
     pub expired: bool,
+    /// Motif d'annulation si le lien a été annulé (le lien reste dans l'historique).
+    pub void_reason: Option<String>,
+    pub voided_at: Option<String>,
+}
+
+impl SessionUsageItem {
+    fn with_expiry(mut self) -> Self {
+        self.useful_until = expiry::useful_until(
+            &self.expiration_date,
+            self.opened_at.as_deref(),
+            self.after_opening_months,
+        );
+        let reference = chrono::NaiveDate::parse_from_str(&self.session_date, "%Y-%m-%d")
+            .unwrap_or_else(|_| expiry::today());
+        self.expired = expiry::is_expired(&self.useful_until, reference);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -35,6 +60,7 @@ pub struct LotSessionItem {
     pub client_first_name: String,
     pub client_last_name: String,
     pub quantity: i64,
+    pub void_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -48,7 +74,23 @@ pub struct LinkableItem {
     pub single_use: bool,
     pub stock: i64,
     pub opened_at: Option<String>,
+    pub after_opening_months: Option<i64>,
+    #[sqlx(skip)]
+    pub useful_until: String,
+    #[sqlx(skip)]
     pub expired: bool,
+}
+
+impl LinkableItem {
+    fn with_expiry(mut self, today: chrono::NaiveDate) -> Self {
+        self.useful_until = expiry::useful_until(
+            &self.expiration_date,
+            self.opened_at.as_deref(),
+            self.after_opening_months,
+        );
+        self.expired = expiry::is_expired(&self.useful_until, today);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -72,6 +114,7 @@ SELECT
     l.expiration_date,
     l.single_use,
     u.opened_at,
+    l.after_opening_months,
     CASE
         WHEN su.lot_id IS NOT NULL THEN COALESCE((
             SELECT SUM(-m.quantity)
@@ -83,8 +126,12 @@ SELECT
         ), 0)
         ELSE 0
     END AS quantity,
-    CASE WHEN l.expiration_date < date('now') THEN 1 ELSE 0 END AS expired
+    s.date AS session_date,
+    v.reason AS void_reason,
+    v.created_at AS voided_at
 FROM session_usages su
+INNER JOIN sessions s ON s.id = su.session_id
+LEFT JOIN session_usage_voids v ON v.session_usage_id = su.id
 LEFT JOIN units u ON u.id = su.unit_id
 INNER JOIN lots l ON l.id = COALESCE(su.lot_id, u.lot_id)
 "#;
@@ -114,7 +161,10 @@ pub async fn list_session_usages(
         .bind(session_id)
         .fetch_all(pool)
         .await?;
-    Ok(items)
+    Ok(items
+        .into_iter()
+        .map(SessionUsageItem::with_expiry)
+        .collect())
 }
 
 pub async fn list_lot_sessions(
@@ -149,8 +199,10 @@ pub async fn list_lot_sessions(
                       AND m.type IN ('CONSUMPTION', 'ADJUSTMENT')
                 ), 0)
                 ELSE 0
-            END AS quantity
+            END AS quantity,
+            v.reason AS void_reason
          FROM session_usages su
+         LEFT JOIN session_usage_voids v ON v.session_usage_id = su.id
          INNER JOIN sessions s ON s.id = su.session_id
          INNER JOIN clients c ON c.id = s.client_id
          LEFT JOIN units u ON u.id = su.unit_id
@@ -183,7 +235,7 @@ pub async fn list_linkable(
                     SELECT SUM(m.quantity) FROM stock_movements m WHERE m.lot_id = l.id
                 ), 0) AS stock,
                 CAST(NULL AS TEXT) AS opened_at,
-                CASE WHEN l.expiration_date < date('now') THEN 1 ELSE 0 END AS expired
+                l.after_opening_months
             FROM lots l
             WHERE l.single_use = 1
               AND COALESCE((
@@ -204,7 +256,7 @@ pub async fn list_linkable(
                 l.single_use,
                 1 AS stock,
                 u.opened_at,
-                CASE WHEN l.expiration_date < date('now') THEN 1 ELSE 0 END AS expired
+                l.after_opening_months
             FROM units u
             INNER JOIN lots l ON l.id = u.lot_id
             WHERE l.single_use = 0
@@ -227,7 +279,11 @@ pub async fn list_linkable(
     .bind(pattern)
     .fetch_all(pool)
     .await?;
-    Ok(items)
+    let today = expiry::today();
+    Ok(items
+        .into_iter()
+        .map(|item| item.with_expiry(today))
+        .collect())
 }
 
 pub async fn link_session(
@@ -287,6 +343,9 @@ pub async fn link_session(
         .fetch_optional(&mut *tx)
         .await?;
         if already.is_some() {
+            if usage_voided(&mut tx, &session_id, None, Some(&unit_id)).await? {
+                return Err(LotError::Invalid(RELINK_AFTER_VOID));
+            }
             return Err(LotError::AlreadyLinked);
         }
         let sql = format!(
@@ -338,6 +397,9 @@ pub async fn link_session(
                 .fetch_optional(&mut *tx)
                 .await?;
         if let Some(id) = existing {
+            if usage_voided(&mut tx, &session_id, Some(&lot_id), None).await? {
+                return Err(LotError::Invalid(RELINK_AFTER_VOID));
+            }
             id
         } else {
             let sql = format!(
@@ -355,9 +417,138 @@ pub async fn link_session(
 
     tx.commit().await?;
     let sql = format!("{USAGE_SELECT} WHERE su.id = ?");
-    sqlx::query_as::<_, SessionUsageItem>(&sql)
+    let item = sqlx::query_as::<_, SessionUsageItem>(&sql)
         .bind(usage_id)
         .fetch_one(pool)
-        .await
-        .map_err(LotError::from)
+        .await?;
+    Ok(item.with_expiry())
+}
+
+const RELINK_AFTER_VOID: &str = "Ce produit a déjà été lié puis annulé pour cette séance : il ne peut pas être relié. Choisis un autre lot ou une autre pièce.";
+
+async fn usage_voided(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    session_id: &str,
+    lot_id: Option<&str>,
+    unit_id: Option<&str>,
+) -> Result<bool, LotError> {
+    let voided: Option<i64> = sqlx::query_scalar(
+        "SELECT 1
+         FROM session_usages su
+         INNER JOIN session_usage_voids v ON v.session_usage_id = su.id
+         WHERE su.session_id = ?1
+           AND (su.lot_id = ?2 OR su.unit_id = ?3)
+         LIMIT 1",
+    )
+    .bind(session_id)
+    .bind(lot_id)
+    .bind(unit_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(voided.is_some())
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoidUsageInput {
+    pub usage_id: String,
+    pub reason: String,
+}
+
+/// Annule un lien séance–produit saisi par erreur.
+///
+/// Le lien n'est pas supprimé : il est marqué annulé avec un motif. Pour un usage
+/// unique, la quantité consommée revient en stock par un ajustement lié à la séance.
+pub async fn void_usage(
+    pool: &SqlitePool,
+    input: VoidUsageInput,
+) -> Result<SessionUsageItem, LotError> {
+    let reason = input.reason.trim().to_string();
+    if reason.is_empty() {
+        return Err(LotError::Invalid("Le motif d'annulation est obligatoire"));
+    }
+    let usage_id = input.usage_id.trim().to_string();
+
+    let mut tx = pool.begin().await?;
+    let usage: Option<(String, Option<String>, bool)> = sqlx::query_as(
+        "SELECT su.session_id, su.lot_id,
+                EXISTS (SELECT 1 FROM session_usage_voids v WHERE v.session_usage_id = su.id)
+         FROM session_usages su
+         WHERE su.id = ?",
+    )
+    .bind(&usage_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((session_id, lot_id, already_voided)) = usage else {
+        return Err(LotError::NotFound);
+    };
+    if already_voided {
+        return Err(LotError::Invalid("Ce lien est déjà annulé"));
+    }
+
+    if let Some(lot_id) = lot_id {
+        let consumed: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(-m.quantity), 0)
+             FROM stock_movements m
+             WHERE m.session_id = ? AND m.lot_id = ? AND m.unit_id IS NULL
+               AND m.type IN ('CONSUMPTION', 'ADJUSTMENT')",
+        )
+        .bind(&session_id)
+        .bind(&lot_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if consumed > 0 {
+            stock::apply_movement(
+                &mut tx,
+                MovementDraft {
+                    lot_id,
+                    unit_id: None,
+                    session_id: Some(session_id),
+                    movement_type: MovementType::Adjustment,
+                    quantity: consumed,
+                    reason: Some(format!("Annulation du lien avec la séance : {reason}")),
+                },
+            )
+            .await?;
+        }
+    }
+
+    let sql = format!(
+        "INSERT INTO session_usage_voids (id, session_usage_id, reason, created_at)
+         VALUES (lower(hex(randomblob(16))), ?, ?, {NOW})"
+    );
+    sqlx::query(&sql)
+        .bind(&usage_id)
+        .bind(&reason)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    let sql = format!("{USAGE_SELECT} WHERE su.id = ?");
+    let item = sqlx::query_as::<_, SessionUsageItem>(&sql)
+        .bind(&usage_id)
+        .fetch_one(pool)
+        .await?;
+    Ok(item.with_expiry())
+}
+
+/// Tous les produits liés aux séances d'un client (liens annulés compris),
+/// de la séance la plus récente à la plus ancienne.
+pub async fn list_client_usages(
+    pool: &SqlitePool,
+    client_id: &str,
+) -> Result<Vec<SessionUsageItem>, LotError> {
+    let sql = format!(
+        "{USAGE_SELECT}
+         WHERE s.client_id = ?
+         ORDER BY s.date DESC, su.created_at ASC"
+    );
+    let items = sqlx::query_as::<_, SessionUsageItem>(&sql)
+        .bind(client_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(items
+        .into_iter()
+        .map(SessionUsageItem::with_expiry)
+        .collect())
 }

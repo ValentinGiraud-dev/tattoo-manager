@@ -6,9 +6,17 @@ export type WindowSettings = {
   height: number;
 };
 
+export type StudioSettings = {
+  /** « Professionnel réalisant l'acte » sur le consentement. */
+  professionalName: string;
+  /** « Fait à » sur le consentement. */
+  city: string;
+};
+
 export type AppSettings = {
   locale: string;
   window: WindowSettings;
+  studio: StudioSettings;
 };
 
 export type AppPaths = {

@@ -16,6 +16,8 @@ export interface LotSummary {
   sealedCount: number;
   openedCount: number;
   movementCount: number;
+  /** Nombre de séances où ce lot ou une de ses pièces a servi. */
+  sessionCount: number;
   expired: boolean;
 }
 
@@ -48,6 +50,11 @@ export interface UnitView {
   exitMovementId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** La pièce a servi dans au moins une séance. */
+  usedInSessions: boolean;
+  /** Dernier jour d'utilisation, calculé en Rust. */
+  usefulUntil: string;
+  expired: boolean;
 }
 
 export interface StockMovement {
@@ -72,6 +79,7 @@ export interface LotSessionItem {
   clientFirstName: string;
   clientLastName: string;
   quantity: number;
+  voidReason: string | null;
 }
 
 export interface SessionUsageItem {
@@ -85,8 +93,15 @@ export interface SessionUsageItem {
   expirationDate: string;
   singleUse: boolean;
   openedAt: string | null;
+  afterOpeningMonths: number | null;
   quantity: number;
+  /** Date de la séance ; `expired` est évalué à cette date. */
+  sessionDate: string;
+  usefulUntil: string;
   expired: boolean;
+  /** Renseigné si le lien a été annulé. */
+  voidReason: string | null;
+  voidedAt: string | null;
 }
 
 export interface LinkableItem {
@@ -98,6 +113,8 @@ export interface LinkableItem {
   singleUse: boolean;
   stock: number;
   openedAt: string | null;
+  afterOpeningMonths: number | null;
+  usefulUntil: string;
   expired: boolean;
 }
 
@@ -133,6 +150,8 @@ interface ProductsState {
     unitId: string | null;
     quantity: number | null;
   }) => Promise<SessionUsageItem>;
+  /** Annule un lien saisi par erreur (motif obligatoire). Le lien reste dans l'historique. */
+  voidUsage: (usageId: string, reason: string) => Promise<SessionUsageItem>;
 }
 
 export const useProductsStore = create<ProductsState>((set, get) => ({
@@ -181,4 +200,6 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
   listLinkable: (sessionId, search) =>
     invoke<LinkableItem[]>("list_linkable_usages", { sessionId, search }),
   linkToSession: (input) => invoke<SessionUsageItem>("link_session_usage", { input }),
+  voidUsage: (usageId, reason) =>
+    invoke<SessionUsageItem>("void_session_usage", { input: { usageId, reason } }),
 }));

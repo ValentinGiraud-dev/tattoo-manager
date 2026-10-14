@@ -294,6 +294,54 @@ Lier une aiguille consomme la quantité sur le lot. Lier un flacon ne change pas
 
 Cette table constitue la base de la traçabilité. Les liens ne se suppriment pas.
 
+Annulation d'un lien (migration 007)
+
+Un lien saisi par erreur s'annule avec un motif obligatoire. Il reste dans `session_usages` et apparaît barré dans l'historique.
+
+SessionUsageVoid
+├── id
+├── session_usage_id   unique : un lien s'annule une seule fois
+├── reason             obligatoire
+└── created_at
+
+Pour un usage unique, la quantité consommée revient en stock par un mouvement `ADJUSTMENT` lié à la séance. Pour une pièce, le stock ne change pas. Un lien annulé ne peut pas être relié à la même séance, et les mouvements d'un lien annulé ne peuvent plus être défaits.
+
+Questionnaires et documents signés (migration 008)
+
+Déroulé : la tatoueuse remplit avec le client, l'app imprime le PDF d'origine pré-rempli, le client signe sur papier, le scan ou la photo est joint à la séance.
+
+SessionForm
+├── id
+├── session_id
+├── kind            HEALTH | CONSENT (un par séance)
+├── form_version    version du formulaire papier
+├── answers         JSON (structs Rust HealthAnswers / ConsentAnswers)
+├── created_at
+└── updated_at
+
+SessionDocument
+├── id
+├── session_id
+├── kind            HEALTH_SIGNED | CONSENT_SIGNED | OTHER
+├── stored_name     fichier dans documents/<session_id>/
+├── original_name
+├── size_bytes
+├── created_at
+├── void_reason     annulation : une seule fois, motif obligatoire
+└── voided_at
+
+* Un document signé non annulé fige les réponses du formulaire correspondant.
+* Le client a une adresse (optionnelle), reprise sur le consentement.
+* L'âge et la majorité se calculent à la date de la séance.
+* Les PDF d'origine sont dans `src-tauri/assets/forms/`. Le pré-remplissage écrit aux coordonnées des formulaires v1 (`services/form_pdf.rs`).
+
+Verrous de traçabilité
+
+* Une séance qui a des produits liés ne change plus de client.
+* Un lot utilisé en séance garde son nom, son numéro, sa péremption et sa durée après ouverture.
+* La date d'ouverture d'une pièce utilisée en séance ne change plus une fois renseignée. Elle ne peut pas être dans le futur.
+* La péremption est calculée en Rust (`services/expiry.rs`), avec la date locale. Pour un produit lié, elle s'évalue à la date de la séance.
+
 ⸻
 
 🔎 Traçabilité

@@ -53,11 +53,22 @@ impl Default for WindowSettings {
     }
 }
 
+/// Informations de l'atelier reportées sur les documents imprimés.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct StudioSettings {
+    /// « Professionnel réalisant l'acte » sur le consentement.
+    pub professional_name: String,
+    /// « Fait à » sur le consentement.
+    pub city: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
     pub locale: String,
     pub window: WindowSettings,
+    pub studio: StudioSettings,
 }
 
 impl Default for AppSettings {
@@ -65,6 +76,7 @@ impl Default for AppSettings {
         Self {
             locale: "fr".to_string(),
             window: WindowSettings::default(),
+            studio: StudioSettings::default(),
         }
     }
 }

@@ -6,6 +6,7 @@ const NAV: { id: AppPage; label: string }[] = [
   { id: "clients", label: "Clients" },
   { id: "sessions", label: "Séances" },
   { id: "products", label: "Produits" },
+  { id: "settings", label: "Paramètres" },
 ];
 
 export function Sidebar() {

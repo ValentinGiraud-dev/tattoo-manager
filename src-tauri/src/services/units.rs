@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use super::error::LotError;
+use super::expiry;
 use super::sql::{self, NOW};
 use super::stock::{self, MovementDraft, MovementType};
 
@@ -16,6 +17,29 @@ pub struct UnitView {
     pub exit_movement_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// La pièce a servi dans au moins une séance.
+    pub used_in_sessions: bool,
+    #[serde(skip)]
+    pub expiration_date: String,
+    #[serde(skip)]
+    pub after_opening_months: Option<i64>,
+    /// Dernier jour d'utilisation (péremption ou ouverture + durée).
+    #[sqlx(skip)]
+    pub useful_until: String,
+    #[sqlx(skip)]
+    pub expired: bool,
+}
+
+impl UnitView {
+    fn with_expiry(mut self, today: chrono::NaiveDate) -> Self {
+        self.useful_until = expiry::useful_until(
+            &self.expiration_date,
+            self.opened_at.as_deref(),
+            self.after_opening_months,
+        );
+        self.expired = expiry::is_expired(&self.useful_until, today);
+        self
+    }
 }
 
 const UNIT_SELECT: &str = r#"
@@ -44,8 +68,12 @@ SELECT
         LIMIT 1
     ) AS exit_movement_id,
     u.created_at,
-    u.updated_at
+    u.updated_at,
+    EXISTS (SELECT 1 FROM session_usages su WHERE su.unit_id = u.id) AS used_in_sessions,
+    l.expiration_date,
+    l.after_opening_months
 FROM units u
+INNER JOIN lots l ON l.id = u.lot_id
 "#;
 
 pub async fn list_units(pool: &SqlitePool, lot_id: &str) -> Result<Vec<UnitView>, LotError> {
@@ -64,7 +92,11 @@ pub async fn list_units(pool: &SqlitePool, lot_id: &str) -> Result<Vec<UnitView>
         .bind(lot_id)
         .fetch_all(pool)
         .await?;
-    Ok(units)
+    let today = expiry::today();
+    Ok(units
+        .into_iter()
+        .map(|unit| unit.with_expiry(today))
+        .collect())
 }
 
 pub async fn open_unit(
@@ -79,9 +111,17 @@ pub async fn open_unit(
         ));
     }
 
-    let row: Option<(String, bool, i64)> = sqlx::query_as(
+    if opened_at.as_str() > expiry::today().format("%Y-%m-%d").to_string().as_str() {
+        return Err(LotError::Invalid(
+            "La date d'ouverture ne peut pas être dans le futur",
+        ));
+    }
+
+    let row: Option<(String, bool, i64, Option<String>, bool)> = sqlx::query_as(
         "SELECT u.lot_id, l.single_use,
-                COALESCE((SELECT SUM(m.quantity) FROM stock_movements m WHERE m.unit_id = u.id), 0)
+                COALESCE((SELECT SUM(m.quantity) FROM stock_movements m WHERE m.unit_id = u.id), 0),
+                u.opened_at,
+                EXISTS (SELECT 1 FROM session_usages su WHERE su.unit_id = u.id)
          FROM units u
          INNER JOIN lots l ON l.id = u.lot_id
          WHERE u.id = ?",
@@ -89,9 +129,20 @@ pub async fn open_unit(
     .bind(unit_id)
     .fetch_optional(pool)
     .await?;
-    let Some((_lot_id, single_use, stock)) = row else {
+    let Some((_lot_id, single_use, stock, current_opened_at, used)) = row else {
         return Err(LotError::NotFound);
     };
+    // La date d'ouverture d'une pièce déjà utilisée détermine sa limite au moment
+    // des séances passées : on peut la renseigner, pas la changer.
+    if used
+        && current_opened_at
+            .as_deref()
+            .is_some_and(|current| current != opened_at)
+    {
+        return Err(LotError::Invalid(
+            "Cette pièce a déjà servi en séance : sa date d'ouverture ne peut plus changer",
+        ));
+    }
     if single_use {
         return Err(LotError::Invalid(
             "Un usage unique n'a pas de date d'ouverture",
@@ -113,7 +164,7 @@ pub async fn open_unit(
         .bind(unit_id)
         .fetch_one(pool)
         .await?;
-    Ok(unit)
+    Ok(unit.with_expiry(expiry::today()))
 }
 
 pub async fn exit_unit(
@@ -170,5 +221,5 @@ pub async fn exit_unit(
         .bind(unit_id)
         .fetch_one(pool)
         .await?;
-    Ok(unit)
+    Ok(unit.with_expiry(expiry::today()))
 }
