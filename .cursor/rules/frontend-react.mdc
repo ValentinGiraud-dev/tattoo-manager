@@ -1,0 +1,65 @@
+---
+description: Conventions React / TypeScript de Tracink — stores, appels Tauri, composants, erreurs
+globs: src/**/*.tsx,src/**/*.ts
+alwaysApply: false
+---
+
+# Frontend React
+
+Lire aussi `ux-ui.mdc`.
+
+## Organisation
+
+```text
+src/
+├── components/        composants partagés (ConfirmDialog, Toast, Field, Button…)
+├── features/<domaine>/ écrans d'un domaine (clients, sessions, products…)
+├── stores/            un store Zustand par domaine + ui-store + settings-store
+├── lib/               utilitaires sans React (formatage de dates, erreurs…)
+└── App.tsx            navigation par ui-store
+```
+
+Un fichier d'écran qui dépasse ~400 lignes se découpe : liste, détail et formulaire dans des fichiers séparés du même dossier.
+
+## Appels Tauri
+
+- `invoke` seulement dans les stores (ou `src/lib/api/` si un appel n'a pas de store). Jamais directement dans un composant.
+- Types TypeScript alignés sur les DTO Rust (`serde(rename_all = "camelCase")`). Un changement de struct Rust = mise à jour du type TS dans le même commit.
+- Les arguments d'une commande gardent les noms Rust en camelCase : `invoke("update_client", { id, input })`.
+- Chaque `invoke` est dans un `try/catch`. L'erreur reçue est une chaîne : l'afficher via l'état d'erreur de l'écran.
+
+```ts
+// ❌ appel dans le composant, erreur ignorée
+useEffect(() => { invoke("list_clients").then(setClients); }, []);
+
+// ✅ le store charge, garde l'erreur, l'écran l'affiche
+const { clients, loading, error, load } = useClientsStore();
+useEffect(() => { void load(""); }, [load]);
+```
+
+## Stores Zustand
+
+- Un store garde : la dernière liste chargée, le filtre courant, `loading`, `error`, et les actions.
+- Après une écriture, recharger depuis Rust (ou remplacer l'élément renvoyé). Pas de calcul local du stock, des statuts ou des dates de péremption.
+- Pas de données métier persistées dans `localStorage`.
+- Sélecteurs fins (`useStore((s) => s.page)`) pour limiter les rendus.
+
+## Composants
+
+- Fonctions, pas de classes. Props typées. Pas de `any`.
+- État dérivé calculé au rendu, pas recopié dans un `useState` + `useEffect`.
+- Pas de composant défini dans un autre composant.
+- Clés de liste stables (`id`), jamais l'index.
+- Les dialogues passent par un composant partagé, pas par du markup recopié.
+- Skills : `vercel-react-best-practices` (sauf règles serveur / Next.js), `vercel-composition-patterns`.
+
+## TypeScript
+
+- `strict` reste activé. Pas de `@ts-ignore` ; `@ts-expect-error` seulement avec un commentaire.
+- Statuts et types en unions littérales qui reprennent les valeurs Rust (`"PLANNED" | "COMPLETED" | …`).
+- Dates échangées en chaînes ISO. Formatage avec des helpers communs dans `src/lib/`, pas recopiés par écran.
+
+## Dépendances
+
+- Aucune nouvelle dépendance sans justification. Pas de bibliothèque de composants, de routeur ou de lib de formulaires pour l'instant.
+- Plugin Tauri ajouté côté JS = plugin ajouté côté Rust + permission minimale dans `src-tauri/capabilities/default.json`.

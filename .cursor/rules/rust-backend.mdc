@@ -1,0 +1,62 @@
+---
+description: Conventions Rust / SQLx / migrations de Tracink — services, erreurs, transactions, tests
+globs: src-tauri/**/*.rs,src-tauri/migrations/**/*.sql,src-tauri/Cargo.toml,src-tauri/tauri.conf.json,src-tauri/capabilities/**
+alwaysApply: false
+---
+
+# Backend Rust
+
+## Couches
+
+- `commands/` : une fonction `#[tauri::command]` par action, sans logique. Elle appelle un service et convertit l'erreur en `String`.
+- `services/` : validation, règles métier, SQL. Un fichier par domaine.
+- `models/` : structs `sqlx::FromRow` + `serde(rename_all = "camelCase")`.
+- `services/sql.rs` : helpers partagés (`NOW`, `clean`, `is_iso_date`, `like_pattern`). Ne pas les recopier.
+- Toute nouvelle commande est enregistrée dans `generate_handler!` de `lib.rs`.
+
+## Validation et règles
+
+- Toute entrée est validée en Rust, même si React l'a déjà fait : `trim`, champs obligatoires, formats de date, bornes numériques.
+- Les invariants de `data-model-v1.mdc` sont vérifiés dans le service, à l'intérieur de la transaction qui écrit.
+- Messages d'erreur métier en français, prêts à afficher.
+
+## Erreurs
+
+- Pas de `unwrap()` ni `expect()` hors tests, sauf invariant prouvé et commenté.
+- Une erreur SQL n'est jamais montrée telle quelle : la journaliser (`eprintln!` en attendant un vrai logger) et renvoyer un message générique (« Erreur d'accès aux données. Réessaie ou redémarre l'app. »).
+- Traduire les violations connues (index unique, contrainte `CHECK`) en message métier.
+- Le démarrage ne doit jamais échouer en silence : dialogue d'erreur + compte rendu, comme dans `lib.rs`.
+
+## SQL et transactions
+
+- Requêtes paramétrées (`?`, `bind`). Jamais de `format!` avec une valeur venant de l'utilisateur. `format!` est réservé aux constantes (`NOW`, fragments `SELECT`).
+- Plusieurs écritures liées = une transaction (`pool.begin()`), vérifications comprises, puis `commit`.
+- Le stock se lit par `SUM(quantity)`. On ne stocke pas de quantité.
+- IDs : `lower(hex(randomblob(16)))`.
+- Clés étrangères activées (`foreign_keys(true)`). Index pour chaque colonne de jointure ou de filtre fréquent.
+- « Aujourd'hui » vient de Rust (`chrono::Local::now().date_naive()`) et se passe en paramètre, pas `date('now')`.
+
+## Migrations
+
+- Fichier `NNN_description.sql`, numéro suivant, dans `src-tauri/migrations/`.
+- **Ne jamais modifier une migration déjà livrée** : SQLx vérifie leur somme de contrôle et l'app refuserait de démarrer chez la tatoueuse.
+- Additives : `CREATE TABLE`, `ADD COLUMN`, `CREATE INDEX`. Une transformation de données est explicite, testée et refuse de continuer si les données sont ambiguës (exemple : garde de la migration 006).
+- Skill `tracink-migration` pour la procédure complète.
+
+## Sauvegardes
+
+- Une copie de la base est faite avant les migrations (`backup.rs`). Ne pas retirer ce comportement.
+- Une sauvegarde de base ouverte se fait avec `VACUUM INTO 'chemin'`, pas avec une copie de fichier (mode WAL).
+- On garde un nombre borné de copies (`KEEP`).
+
+## Tests
+
+- Chaque règle métier : un test qui passe et un test qui refuse. Modèle : `services/stock_rules_tests.rs` (base SQLite temporaire + migrations réelles).
+- Nommer les tests par la règle : `exit_twice_is_refused`, pas `test_unit_2`.
+- `cargo fmt`, `cargo clippy --all-targets -- -D warnings` et `cargo test` passent avant commit.
+
+## Tauri
+
+- Permissions minimales dans `capabilities/default.json`. Ajouter une permission précise, jamais `*:default` par confort.
+- Pas d'accès système de fichiers générique au frontend : Rust lit et écrit dans les dossiers de `AppPaths`.
+- Version identique dans `package.json`, `Cargo.toml`, `tauri.conf.json` (skill `tracink-release`).

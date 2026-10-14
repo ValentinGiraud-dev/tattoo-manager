@@ -303,6 +303,8 @@ migrations/
 ├── 002_sessions.sql
 ├── 003_products.sql
 ├── 004_session_products.sql
+├── 005_session_indexes.sql
+├── 006_lots_and_stock.sql
 └── ...
 ```
 
@@ -472,7 +474,7 @@ Session
 └── updated_at
 ```
 
-Les produits utilisés passent par `session_products`. Les questionnaires de consentement et de santé sont liés à la séance, pas au client. Leurs champs seront ajoutés quand le contenu sera connu.
+Les produits utilisés passent par `session_usages`. Les questionnaires de consentement et de santé sont liés à la séance, pas au client. Leurs champs seront ajoutés quand le contenu sera connu.
 
 Photos et documents associés viendront plus tard.
 
@@ -482,18 +484,17 @@ Photos et documents associés viendront plus tard.
 
 # 📦 Produits
 
-En V1, un produit est saisi à la main. Le lot est une colonne, pas une table. Il n'y a pas de quantité ni de stock.
+Un produit à l'écran est un lot. Le lot porte ce qui est imprimé une fois : nom, numéro, dates, type, durée après ouverture, URL. L'identité est le couple nom + numéro, sans tenir compte de la casse.
 
 ```text
-Product
+Lot
 ├── id
 ├── name
 ├── lot_number
 ├── creation_date
-├── opened_at               NULL = jamais ouvert
 ├── expiration_date
-├── after_opening_months    NULL = pas de limite plus courte après ouverture
-├── single_use              1 = usage unique, 0 = réutilisable
+├── single_use              1 = usage unique, 0 = encre
+├── after_opening_months    NULL si usage unique
 ├── product_url
 ├── created_at
 └── updated_at
@@ -501,46 +502,34 @@ Product
 
 `name`, `lot_number`, `expiration_date` et `single_use` sont obligatoires.
 
-`after_opening_months` est un nombre de mois, pas une date. Une encre peut se périmer en 2030 et n'être bonne que 6 mois après ouverture : la limite utile est la plus proche entre `expiration_date` et `opened_at` plus ces mois. Tant que le produit n'est pas ouvert, seule `expiration_date` compte.
+**Usage unique** (aiguille, cartouche, gant) : pas de flacon, pas de date d'ouverture, pas de durée après ouverture. La limite utile est `expiration_date`. « Boîte de 50 » crée un mouvement `PURCHASE` de +50 sur le lot.
 
-Une séance utilise plusieurs produits, et un produit peut servir plusieurs séances :
+**Encre** : « lot de 6 » crée le lot et 6 flacons. Chaque flacon a son `opened_at`. `after_opening_months` vit sur le lot. La limite utile d'un flacon ouvert est la plus proche entre `expiration_date` et `opened_at` plus ces mois. Tant que le flacon n'est pas ouvert, seule `expiration_date` compte.
 
 ```text
-SessionProduct
+Unit
+├── id
+├── lot_id
+├── opened_at               NULL = scellé
+├── created_at
+└── updated_at
+```
+
+Une séance utilise plusieurs lots ou flacons :
+
+```text
+SessionUsage
 ├── session_id
-├── product_id
+├── lot_id                  usage unique
+├── unit_id                 flacon d'encre
 └── created_at
 ```
 
+Exactement un des deux liens est rempli. Ces liens ne se suppriment pas.
 
+## Évolution — fiche produit
 
-## Évolution — stock
-
-Le stock n'est pas dans la V1. Il pourra gérer plus tard différents types de produits :
-
-- encres ;
-- aiguilles/cartouches ;
-- gants ;
-- produits d'hygiène ;
-- consommables ;
-- matériel stérile ;
-- produits désinfectants ;
-- autres fournitures.
-
-Chaque produit pourra éventuellement avoir, en plus des champs V1 :
-
-```text
-Produit
-├── Marque
-├── Référence
-├── Catégorie
-├── Fournisseur
-├── Date d'achat
-├── Quantité
-└── Emplacement
-```
-
-Ces informations sont susceptibles d'évoluer. La quantité, le jour où elle existera, passera par des mouvements de stock, pas par un écrasement.
+Marque, référence, catégorie, fournisseur, date d'achat et emplacement ne sont pas dans ce stock. Ils pourront s'ajouter sur le lot quand le besoin sera défini.
 
 ---
 
@@ -548,21 +537,21 @@ Ces informations sont susceptibles d'évoluer. La quantité, le jour où elle ex
 
 # 🔎 Traçabilité
 
-La traçabilité V1 passe par `session_products` et par `products.lot_number`.
+La traçabilité passe par `session_usages` et par le lot.
 
 ```text
-Client → Séances → SessionProduct → Produits
-Produit → SessionProduct → Séances
-Séance → SessionProduct → Produits
+Client → Séances → SessionUsage → Lot ou flacon
+Lot → SessionUsage → Séances
+Séance → SessionUsage → Lots ou flacons
 ```
 
 Exemples :
 
-> Quels produits ont été utilisés pendant cette séance ?
+> Quels lots et flacons ont été utilisés pendant cette séance ?
 
-> Dans quelles séances le produit de lot `ABC123` a-t-il été utilisé ?
+> Dans quelles séances le lot `ABC123` a-t-il été utilisé ?
 
-> Quels produits ont été utilisés pour ce client ?
+> Quels lots ont été utilisés pour ce client ?
 
 ---
 
@@ -570,46 +559,36 @@ Exemples :
 
 # 📊 Mouvements de stock
 
-Hors V1. Quand le stock existera, il faudra enregistrer un mouvement plutôt que d'écraser une quantité.
-
-Exemple :
-
-```text
-Stock = 20
-```
-
-Puis :
-
-```text
-Stock = 19
-```
-
-Il est préférable d'enregistrer un mouvement :
+La quantité affichée est la somme des mouvements. Elle n'est jamais stockée ni écrasée.
 
 ```text
 StockMovement
 
-product_id
 lot_id
+unit_id       NULL pour un usage unique
+session_id    seulement une consommation d'usage unique
 type
 quantity
-date
-session_id
 reason
+created_at
 ```
 
-Exemples de mouvements :
+Types :
 
 ```text
 PURCHASE
-ADJUSTMENT
 CONSUMPTION
-EXPIRATION
 LOSS
+EXPIRATION
 RETURN
+ADJUSTMENT
 ```
 
-Cela permet de conserver un historique.
+Usage unique : le stock du lot est `SUM(quantity)`. Lier le lot à une séance écrit un `CONSUMPTION` de −N. Relier le même lot ajoute un mouvement, sans dupliquer le lien. Un mouvement qui passerait sous zéro est refusé. On corrige par un `ADJUSTMENT`, avec une raison.
+
+Encre : chaque flacon a ses mouvements de +1 ou −1. Le stock est le nombre de flacons encore là. Lier un flacon à une séance ne change pas le stock. Le sortir est une action à part : terminé (`CONSUMPTION` sans séance), perdu, périmé ou renvoyé. Un flacon ne sort pas deux fois.
+
+Un lot périmé reste sélectionnable. Rien n'est jeté automatiquement. On ne suit pas les millilitres.
 
 ---
 
@@ -645,26 +624,9 @@ L'application ne doit pas inventer de règles sanitaires.
 
 # 🧴 Ouverture des produits
 
-En V1, l'ouverture est le champ `products.opened_at`. Une table d'ouvertures séparée n'est pas nécessaire.
+L'ouverture est le champ `units.opened_at`, sur un flacon d'encre. Un usage unique n'a pas de date d'ouverture : la pièce est ouverte au moment de la séance.
 
-Plus tard, l'application pourra enregistrer des ouvertures plus détaillées.
-
-Exemple :
-
-```text
-ProductOpening
-├── Product
-├── Lot
-├── Date d'ouverture
-├── Heure
-├── Séance
-├── Client
-├── Quantité
-├── Date limite éventuelle
-└── Notes
-```
-
-L'objectif est de pouvoir retrouver précisément l'utilisation d'un produit.
+Une table d'ouvertures séparée n'est pas nécessaire.
 
 ---
 
@@ -953,10 +915,12 @@ La roadmap est indicative et pourra changer.
 
 ## Phase 4 — Produits et traçabilité
 
-- [x] Produits (`name`, `lot_number`, `expiration_date`, `opened_at`, `after_opening_months`, `single_use`, `product_url`)
-- [x] Lien `session_products`
+- [x] Lots (`name`, `lot_number`, `expiration_date`, `single_use`, `after_opening_months`, `product_url`)
+- [x] Flacons d'encre (`opened_at`)
+- [x] Stock par mouvements
+- [x] Lien `session_usages` : lot pour l'usage unique, flacon pour l'encre
 - [x] Produits d'une séance
-- [x] Séances d'un produit
+- [x] Séances d'un lot
 - [x] Produits d'un client
 
 
@@ -973,8 +937,7 @@ La roadmap est indicative et pourra changer.
 ## Phase 6 — Évolutions métier
 
 - [ ] Rendez-vous
-- [ ] Stock et mouvements
-- [ ] Lots séparés, marques, fournisseurs
+- [ ] Marques, fournisseurs, emplacement
 - [ ] Hygiène et stérilisation
 - [ ] Documents et photos
 - [ ] Rapports
@@ -1029,9 +992,9 @@ Client
  ↓
 Séance
  ↓
-SessionProduct
+SessionUsage
  ↓
-Produit (lot_number)
+Lot ou flacon
 ```
 
 doivent être cohérentes avant de construire toutes les interfaces. Le détail est dans `database-start.md`.
@@ -1042,9 +1005,9 @@ doivent être cohérentes avant de construire toutes les interfaces. Le détail 
 
 ## 3. Ne jamais détruire inutilement l'historique
 
-Pour la traçabilité V1, conserver les lignes de `session_products`. Ne pas les effacer pour « corriger » une séance.
+Pour la traçabilité, conserver les lignes de `session_usages`. Ne pas les effacer pour « corriger » une séance.
 
-Quand le stock existera, privilégier des mouvements plutôt qu'une quantité écrasée.
+Le stock se corrige par un mouvement, pas en écrasant une quantité.
 
 ---
 

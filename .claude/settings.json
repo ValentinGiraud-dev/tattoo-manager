@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(pnpm install)",
+      "Bash(pnpm build)",
+      "Bash(pnpm tauri dev)",
+      "Bash(pnpm exec tsc:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(pnpm dist:mac)",
+      "Bash(pnpm add:*)",
+      "Bash(cargo add:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/*.key)",
+      "Read(~/Library/Application Support/com.tracink.app/**)",
+      "Bash(git push --force:*)"
+    ]
+  }
+}

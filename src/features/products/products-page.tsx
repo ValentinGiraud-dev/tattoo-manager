@@ -2,15 +2,16 @@ import { useEffect, useState, type FormEvent } from "react";
 import { DateSelector } from "../../components/date-selector";
 import {
   useProductsStore,
-  type Product,
-  type ProductInput,
-  type ProductSessionItem,
+  type LotSessionItem,
+  type LotSummary,
+  type StockMovement,
+  type UnitView,
 } from "../../stores/products-store";
 
 type View =
   | { kind: "list" }
-  | { kind: "form"; product?: Product }
-  | { kind: "detail"; product: Product };
+  | { kind: "form"; lot?: LotSummary }
+  | { kind: "detail"; lot: LotSummary };
 
 const emptyToNull = (value: string) => (value.trim() === "" ? null : value.trim());
 
@@ -27,6 +28,22 @@ const STATUS_LABELS: Record<string, string> = {
   COMPLETED: "Terminée",
   CANCELLED: "Annulée",
   RESCHEDULED: "Reportée",
+};
+
+const MOVEMENT_LABELS: Record<string, string> = {
+  PURCHASE: "Réception",
+  CONSUMPTION: "Consommation",
+  LOSS: "Perte",
+  EXPIRATION: "Péremption",
+  RETURN: "Retour",
+  ADJUSTMENT: "Ajustement",
+};
+
+const EXIT_LABELS: Record<string, string> = {
+  CONSUMPTION: "Terminé",
+  LOSS: "Perdu",
+  EXPIRATION: "Périmé",
+  RETURN: "Renvoyé",
 };
 
 function formatIsoDate(value: string) {
@@ -55,74 +72,112 @@ function addMonthsIso(iso: string, months: number): string | null {
   return `${y}-${m}-${d}`;
 }
 
-/** Limite utile = plus proche entre expiration et (ouverture + durée). */
-function usefulUntil(product: Product): string {
-  let limit = product.expirationDate;
-  if (product.openedAt && product.afterOpeningMonths) {
-    const afterOpen = addMonthsIso(product.openedAt, product.afterOpeningMonths);
+function usefulUntil(
+  expirationDate: string,
+  openedAt: string | null,
+  afterOpeningMonths: number | null,
+): string {
+  let limit = expirationDate;
+  if (openedAt && afterOpeningMonths) {
+    const afterOpen = addMonthsIso(openedAt, afterOpeningMonths);
     if (afterOpen && afterOpen < limit) limit = afterOpen;
   }
   return limit;
 }
 
-function ProductForm({
-  product,
+function stockLabel(lot: LotSummary): string {
+  if (lot.singleUse) {
+    if (lot.movementCount === 0) return "Stock non renseigné";
+    return `${lot.stock} restant${lot.stock > 1 ? "s" : ""}`;
+  }
+  const sealed = `${lot.sealedCount} scellé${lot.sealedCount > 1 ? "s" : ""}`;
+  const opened = `${lot.openedCount} ouvert${lot.openedCount > 1 ? "s" : ""}`;
+  return `${lot.stock} en stock · ${sealed} · ${opened}`;
+}
+
+function LotForm({
+  lot,
   onDone,
 }: {
-  product?: Product;
-  onDone: (saved?: Product) => void;
+  lot?: LotSummary;
+  onDone: (saved?: LotSummary) => void;
 }) {
-  const { create, update } = useProductsStore();
+  const { create, update, find } = useProductsStore();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [creationDate, setCreationDate] = useState<string | null>(product?.creationDate ?? null);
-  const [openedAt, setOpenedAt] = useState<string | null>(product?.openedAt ?? null);
+  const [name, setName] = useState(lot?.name ?? "");
+  const [lotNumber, setLotNumber] = useState(lot?.lotNumber ?? "");
+  const [existing, setExisting] = useState<LotSummary | null>(null);
+  const [creationDate, setCreationDate] = useState<string | null>(lot?.creationDate ?? null);
   const [expirationDate, setExpirationDate] = useState<string | null>(
-    product?.expirationDate ?? null,
+    lot?.expirationDate ?? null,
   );
-  const [singleUse, setSingleUse] = useState(product?.singleUse ?? true);
+  const [singleUse, setSingleUse] = useState(lot?.singleUse ?? true);
+  const [afterOpeningMonths, setAfterOpeningMonths] = useState(
+    lot?.afterOpeningMonths?.toString() ?? "",
+  );
+  const [productUrl, setProductUrl] = useState(lot?.productUrl ?? "");
+  const [quantity, setQuantity] = useState("1");
   const currentYear = new Date().getFullYear();
+  const locked = existing != null;
+
+  async function lookup() {
+    if (lot) return;
+    const found = await find(name, lotNumber);
+    setExisting(found);
+    if (!found) return;
+    setSingleUse(found.singleUse);
+    setExpirationDate(found.expirationDate);
+    setCreationDate(found.creationDate);
+    setAfterOpeningMonths(found.afterOpeningMonths?.toString() ?? "");
+    setProductUrl(found.productUrl ?? "");
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const text = (name: string) => String(data.get(name) ?? "");
     if (!expirationDate) {
       setError("La date d'expiration est obligatoire");
       return;
     }
-    const monthsRaw = text("afterOpeningMonths").trim();
-    let afterOpeningMonths: number | null = null;
-    if (monthsRaw !== "") {
-      const months = Number(monthsRaw);
+    let months: number | null = null;
+    if (!singleUse && afterOpeningMonths.trim() !== "") {
+      months = Number(afterOpeningMonths);
       if (!Number.isInteger(months) || months <= 0) {
         setError("La durée après ouverture doit être un nombre de mois positif");
         return;
       }
-      afterOpeningMonths = months;
-    }
-    const input: ProductInput = {
-      name: text("name").trim(),
-      lotNumber: text("lotNumber").trim(),
-      creationDate,
-      openedAt,
-      expirationDate,
-      afterOpeningMonths,
-      singleUse,
-      productUrl: emptyToNull(text("productUrl")),
-    };
-    if (!input.name) {
-      setError("Le nom est obligatoire");
-      return;
-    }
-    if (!input.lotNumber) {
-      setError("Le numéro de lot est obligatoire");
-      return;
     }
     setSaving(true);
     setError(null);
     try {
-      const saved = product ? await update(product.id, input) : await create(input);
+      if (lot) {
+        const saved = await update(lot.id, {
+          name: name.trim(),
+          lotNumber: lotNumber.trim(),
+          creationDate,
+          expirationDate,
+          afterOpeningMonths: singleUse ? null : months,
+          productUrl: emptyToNull(productUrl),
+        });
+        onDone(saved);
+        return;
+      }
+      const qty = Number(quantity);
+      if (!Number.isInteger(qty) || qty <= 0) {
+        setError("La quantité doit être un nombre positif");
+        setSaving(false);
+        return;
+      }
+      const saved = await create({
+        name: name.trim(),
+        lotNumber: lotNumber.trim(),
+        creationDate,
+        expirationDate,
+        singleUse,
+        afterOpeningMonths: singleUse ? null : months,
+        productUrl: emptyToNull(productUrl),
+        quantity: qty,
+      });
       onDone(saved);
     } catch (submitError) {
       setError(String(submitError));
@@ -145,16 +200,26 @@ function ProductForm({
           ← Retour
         </button>
         <h1 className="text-[24px] font-medium tracking-tight">
-          {product ? "Modifier le produit" : "Nouveau produit"}
+          {lot ? "Modifier le lot" : "Nouveau lot"}
         </h1>
       </div>
+
+      {locked && (
+        <p className="rounded-md border border-line bg-surface px-3 py-2 text-[13px] text-fg-muted">
+          Ce lot existe déjà. Seule la quantité sera ajoutée.
+        </p>
+      )}
 
       <label className={labelClass}>
         Nom *
         <input
-          name="name"
           required
-          defaultValue={product?.name ?? ""}
+          value={name}
+          onChange={(event) => {
+            setName(event.target.value);
+            setExisting(null);
+          }}
+          onBlur={() => void lookup()}
           placeholder="Ex. Encre noire, aiguille 3RL"
           className={fieldClass}
         />
@@ -163,14 +228,22 @@ function ProductForm({
       <label className={labelClass}>
         Numéro de lot *
         <input
-          name="lotNumber"
           required
-          defaultValue={product?.lotNumber ?? ""}
+          value={lotNumber}
+          onChange={(event) => {
+            setLotNumber(event.target.value);
+            setExisting(null);
+          }}
+          onBlur={() => void lookup()}
           className={fieldClass}
         />
+        <p className="mt-1.5 text-[12.5px] text-fg-muted">
+          Une boîte qui mélange plusieurs tailles se saisit en un lot par taille, avec le même
+          numéro.
+        </p>
       </label>
 
-      <fieldset className="flex flex-col gap-2">
+      <fieldset className="flex flex-col gap-2" disabled={locked || Boolean(lot)}>
         <legend className={labelClass}>Type *</legend>
         <div className="mt-1 flex gap-2">
           <button
@@ -183,7 +256,7 @@ function ProductForm({
                 : "border border-line-strong text-fg-muted hover:bg-surface-3",
             ].join(" ")}
           >
-            Usage unique (aiguille)
+            Usage unique
           </button>
           <button
             type="button"
@@ -195,72 +268,79 @@ function ProductForm({
                 : "border border-line-strong text-fg-muted hover:bg-surface-3",
             ].join(" ")}
           >
-            Réutilisable (encre)
+            Usage multiple
           </button>
         </div>
       </fieldset>
 
       <div>
-        <label htmlFor="product-expiration" className={labelClass}>
+        <label htmlFor="lot-expiration" className={labelClass}>
           Date d&apos;expiration *
         </label>
         <DateSelector
-          id="product-expiration"
+          id="lot-expiration"
           value={expirationDate}
           onChange={setExpirationDate}
           placeholder="Choisir la date d'expiration"
           minYear={currentYear - 5}
           maxYear={currentYear + 20}
+          disabled={locked}
         />
       </div>
 
       <div>
-        <label htmlFor="product-creation" className={labelClass}>
+        <label htmlFor="lot-creation" className={labelClass}>
           Date de fabrication
         </label>
         <DateSelector
-          id="product-creation"
+          id="lot-creation"
           value={creationDate}
           onChange={setCreationDate}
           placeholder="Optionnel"
           minYear={currentYear - 20}
           maxYear={currentYear + 1}
+          disabled={locked}
         />
       </div>
 
-      <div>
-        <label htmlFor="product-opened" className={labelClass}>
-          Ouvert le
+      {!singleUse && (
+        <label className={labelClass}>
+          Durée après ouverture (mois)
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={afterOpeningMonths}
+            onChange={(event) => setAfterOpeningMonths(event.target.value)}
+            disabled={locked}
+            placeholder="Ex. 12"
+            className={fieldClass}
+          />
         </label>
-        <DateSelector
-          id="product-opened"
-          value={openedAt}
-          onChange={setOpenedAt}
-          placeholder="Jamais ouvert si vide"
-          minYear={currentYear - 10}
-          maxYear={currentYear + 1}
-        />
-      </div>
+      )}
 
-      <label className={labelClass}>
-        Durée après ouverture (mois)
-        <input
-          name="afterOpeningMonths"
-          type="number"
-          min={1}
-          step={1}
-          defaultValue={product?.afterOpeningMonths ?? ""}
-          placeholder="Ex. 12"
-          className={fieldClass}
-        />
-      </label>
+      {!lot && (
+        <label className={labelClass}>
+          {singleUse ? "Quantité reçue *" : "Nombre de pièces *"}
+          <input
+            required
+            type="number"
+            min={1}
+            step={1}
+            value={quantity}
+            onChange={(event) => setQuantity(event.target.value)}
+            className={fieldClass}
+          />
+        </label>
+      )}
 
       <label className={labelClass}>
         URL produit
         <input
-          name="productUrl"
           type="url"
-          defaultValue={product?.productUrl ?? ""}
+          value={productUrl}
+          onChange={(event) => setProductUrl(event.target.value)}
+          disabled={locked}
           placeholder="https://…"
           className={fieldClass}
         />
@@ -280,55 +360,178 @@ function ProductForm({
   );
 }
 
-function ProductDetail({
-  product,
+function MovementForm({
+  lotId,
+  onSaved,
+}: {
+  lotId: string;
+  onSaved: (lot: LotSummary) => void;
+}) {
+  const recordMovement = useProductsStore((state) => state.recordMovement);
+  const [movementType, setMovementType] = useState("PURCHASE");
+  const [quantity, setQuantity] = useState("1");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const qty = Number(quantity);
+    if (!Number.isInteger(qty) || qty === 0 || (movementType !== "ADJUSTMENT" && qty < 0)) {
+      setError(
+        movementType === "ADJUSTMENT"
+          ? "L'ajustement est un nombre non nul, négatif pour retirer"
+          : "La quantité doit être un nombre positif",
+      );
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await recordMovement({
+        lotId,
+        movementType,
+        quantity: qty,
+        reason: emptyToNull(reason),
+      });
+      setReason("");
+      onSaved(saved);
+    } catch (submitError) {
+      setError(String(submitError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-3">
+      <h2 className="text-[14px] font-medium">Mouvement de stock</h2>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className={labelClass}>
+          Type
+          <select
+            value={movementType}
+            onChange={(event) => setMovementType(event.target.value)}
+            className={fieldClass}
+          >
+            <option value="PURCHASE">Réception</option>
+            <option value="LOSS">Perte</option>
+            <option value="EXPIRATION">Péremption</option>
+            <option value="RETURN">Retour</option>
+            <option value="ADJUSTMENT">Ajustement</option>
+          </select>
+        </label>
+        <label className={labelClass}>
+          Quantité
+          <input
+            type="number"
+            step={1}
+            value={quantity}
+            onChange={(event) => setQuantity(event.target.value)}
+            className={fieldClass}
+          />
+        </label>
+      </div>
+      <label className={labelClass}>
+        Raison {movementType === "ADJUSTMENT" ? "*" : ""}
+        <input
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          required={movementType === "ADJUSTMENT"}
+          placeholder={movementType === "ADJUSTMENT" ? "Ex. comptage" : "Optionnel"}
+          className={fieldClass}
+        />
+      </label>
+      {error && <p className="text-[13px] text-danger">{error}</p>}
+      <button type="submit" disabled={saving} className={`${btnPrimary} self-start`}>
+        {saving ? "Enregistrement…" : "Enregistrer le mouvement"}
+      </button>
+    </form>
+  );
+}
+
+function LotDetail({
+  lot,
   onEdit,
   onBack,
+  onChange,
 }: {
-  product: Product;
+  lot: LotSummary;
   onEdit: () => void;
   onBack: () => void;
+  onChange: (lot: LotSummary) => void;
 }) {
-  const listSessions = useProductsStore((state) => state.listSessions);
-  const [sessions, setSessions] = useState<ProductSessionItem[]>([]);
-  const [sessionsError, setSessionsError] = useState<string | null>(null);
-  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const { listSessions, listUnits, listMovements, openUnit, exitUnit, undoMovement, get } =
+    useProductsStore();
+  const [sessions, setSessions] = useState<LotSessionItem[]>([]);
+  const [units, setUnits] = useState<UnitView[]>([]);
+  const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [openDates, setOpenDates] = useState<Record<string, string | null>>({});
+  const currentYear = new Date().getFullYear();
+
+  async function refresh(next = lot) {
+    const [sessionItems, unitItems, movementItems] = await Promise.all([
+      listSessions(next.id),
+      listUnits(next.id),
+      listMovements(next.id),
+    ]);
+    setSessions(sessionItems);
+    setUnits(unitItems);
+    setMovements(movementItems);
+    setOpenDates((current) => {
+      const dates = { ...current };
+      for (const unit of unitItems) {
+        if (dates[unit.id] === undefined) dates[unit.id] = unit.openedAt;
+      }
+      return dates;
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
-    setSessionsLoading(true);
-    void listSessions(product.id)
-      .then((items) => {
-        if (!cancelled) {
-          setSessions(items);
-          setSessionsError(null);
-        }
+    setLoading(true);
+    void refresh()
+      .then(() => {
+        if (!cancelled) setError(null);
       })
-      .catch((error: unknown) => {
-        if (!cancelled) setSessionsError(String(error));
+      .catch((loadError: unknown) => {
+        if (!cancelled) setError(String(loadError));
       })
       .finally(() => {
-        if (!cancelled) setSessionsLoading(false);
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [listSessions, product.id]);
+  }, [listMovements, listSessions, listUnits, lot.id]);
+
+  async function run(action: () => Promise<void>) {
+    setError(null);
+    try {
+      await action();
+      const next = await get(lot.id);
+      onChange(next);
+      await refresh(next);
+    } catch (actionError) {
+      setError(String(actionError));
+    }
+  }
 
   const rows: [string, string | null][] = [
-    ["Lot", product.lotNumber],
-    ["Type", product.singleUse ? "Usage unique" : "Réutilisable"],
-    ["Expiration", formatIsoDate(product.expirationDate)],
-    ["Limite utile", formatIsoDate(usefulUntil(product))],
-    ["Fabrication", product.creationDate ? formatIsoDate(product.creationDate) : null],
-    ["Ouvert le", product.openedAt ? formatIsoDate(product.openedAt) : "Jamais ouvert"],
+    ["Lot", lot.lotNumber],
+    ["Type", lot.singleUse ? "Usage unique" : "Usage multiple"],
+    ["Stock", stockLabel(lot)],
+    ["Expiration", formatIsoDate(lot.expirationDate)],
+    ["Fabrication", lot.creationDate ? formatIsoDate(lot.creationDate) : null],
     [
       "Après ouverture",
-      product.afterOpeningMonths != null ? `${product.afterOpeningMonths} mois` : null,
+      lot.afterOpeningMonths != null ? `${lot.afterOpeningMonths} mois` : null,
     ],
-    ["URL", product.productUrl],
-    ["Créé le", formatTimestamp(product.createdAt)],
-    ["Modifié le", formatTimestamp(product.updatedAt)],
+    ["URL", lot.productUrl],
+    ["Créé le", formatTimestamp(lot.createdAt)],
+    ["Modifié le", formatTimestamp(lot.updatedAt)],
   ];
 
   return (
@@ -343,15 +546,25 @@ function ProductDetail({
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
           <p className="mb-1 text-[12px] text-fg-faint">
-            {product.singleUse ? "Usage unique" : "Réutilisable"}
+            {lot.singleUse ? "Usage unique" : "Usage multiple"}
+            {lot.expired ? " · Périmé" : ""}
           </p>
-          <h1 className="text-[24px] font-medium tracking-tight">{product.name}</h1>
-          <p className="mt-1 text-[13px] text-fg-muted">Lot {product.lotNumber}</p>
+          <h1 className="text-[24px] font-medium tracking-tight">{lot.name}</h1>
+          <p className="mt-1 text-[13px] text-fg-muted">
+            Lot {lot.lotNumber} · {stockLabel(lot)}
+          </p>
         </div>
         <button type="button" onClick={onEdit} className={btnPrimary}>
           Modifier
         </button>
       </div>
+
+      {lot.expired && (
+        <p className="rounded-md border border-line bg-surface px-3 py-2 text-[13px] text-fg-muted">
+          La date de péremption est dépassée. Le lot reste utilisable : rien n&apos;est jeté
+          automatiquement.
+        </p>
+      )}
 
       <dl className="grid gap-3 rounded-lg border border-line bg-surface p-4">
         {rows.map(([label, value]) => (
@@ -362,23 +575,190 @@ function ProductDetail({
         ))}
       </dl>
 
+      {error && <p className="text-[13px] text-danger">{error}</p>}
+
+      {lot.singleUse ? (
+        <MovementForm
+          lotId={lot.id}
+          onSaved={(saved) => {
+            onChange(saved);
+            void refresh(saved);
+          }}
+        />
+      ) : (
+        <section>
+          <h2 className="mb-2 text-[14px] font-medium">Pièces</h2>
+          {loading ? (
+            <p className="text-[13px] text-fg-muted">Chargement…</p>
+          ) : (
+            <ul className="overflow-hidden rounded-lg border border-line bg-surface">
+              {units.map((unit, index) => {
+                const limit =
+                  unit.openedAt != null
+                    ? usefulUntil(lot.expirationDate, unit.openedAt, lot.afterOpeningMonths)
+                    : null;
+                return (
+                  <li
+                    key={unit.id}
+                    className={index > 0 ? "border-t border-line px-4 py-3" : "px-4 py-3"}
+                  >
+                    <p className="text-[14px] font-medium">Pièce {index + 1}</p>
+                    <p className="mt-0.5 text-[12.5px] text-fg-muted">
+                      {unit.inStock
+                        ? unit.openedAt
+                          ? `Ouvert le ${formatIsoDate(unit.openedAt)}`
+                          : "Scellé"
+                        : (EXIT_LABELS[unit.exitType ?? ""] ?? "Sorti")}
+                      {limit ? ` · limite ${formatIsoDate(limit)}` : ""}
+                    </p>
+                    {!unit.inStock && unit.exitMovementId && (
+                      <button
+                        type="button"
+                        className={`${btnGhost} mt-3`}
+                        onClick={() => {
+                          const movementId = unit.exitMovementId;
+                          if (!movementId) return;
+                          void run(async () => {
+                            await undoMovement(movementId);
+                          });
+                        }}
+                      >
+                        Remettre en stock
+                      </button>
+                    )}
+                    {unit.inStock && (
+                      <div className="mt-3 flex flex-col gap-3">
+                        <div>
+                          <label className={labelClass} htmlFor={`open-${unit.id}`}>
+                            Ouvert le
+                          </label>
+                          <DateSelector
+                            id={`open-${unit.id}`}
+                            value={openDates[unit.id] ?? unit.openedAt}
+                            onChange={(value) =>
+                              setOpenDates((current) => ({ ...current, [unit.id]: value }))
+                            }
+                            placeholder="Choisir la date d'ouverture"
+                            minYear={currentYear - 10}
+                            maxYear={currentYear + 1}
+                          />
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className={btnPrimary}
+                            onClick={() => {
+                              const date = openDates[unit.id];
+                              if (!date) {
+                                setError("La date d'ouverture est obligatoire");
+                                return;
+                              }
+                              void run(async () => {
+                                await openUnit(unit.id, date);
+                                await refresh();
+                              });
+                            }}
+                          >
+                            Enregistrer l&apos;ouverture
+                          </button>
+                          {(
+                            [
+                              ["CONSUMPTION", "Terminé"],
+                              ["LOSS", "Perdu"],
+                              ["EXPIRATION", "Périmé"],
+                              ["RETURN", "Renvoyé"],
+                            ] as const
+                          ).map(([type, label]) => (
+                            <button
+                              key={type}
+                              type="button"
+                              className={btnGhost}
+                              onClick={() =>
+                                void run(async () => {
+                                  await exitUnit(unit.id, type);
+                                  await refresh();
+                                })
+                              }
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
+      <section>
+        <h2 className="mb-2 text-[14px] font-medium">Mouvements</h2>
+        {loading ? (
+          <p className="text-[13px] text-fg-muted">Chargement…</p>
+        ) : movements.length === 0 ? (
+          <p className="rounded-lg border border-line bg-surface px-4 py-6 text-center text-[13px] text-fg-muted">
+            Aucun mouvement.
+          </p>
+        ) : (
+          <ul className="overflow-hidden rounded-lg border border-line bg-surface">
+            {movements.map((movement, index) => (
+              <li
+                key={movement.id}
+                className={
+                  index > 0
+                    ? "flex items-start justify-between gap-3 border-t border-line px-4 py-3"
+                    : "flex items-start justify-between gap-3 px-4 py-3"
+                }
+              >
+                <div className="min-w-0">
+                  <p className="text-[14px] font-medium">
+                    {movement.type === "CONSUMPTION" && movement.unitId
+                      ? "Terminé"
+                      : (MOVEMENT_LABELS[movement.type] ?? movement.type)}
+                    {" · "}
+                    {movement.quantity > 0 ? `+${movement.quantity}` : movement.quantity}
+                  </p>
+                  <p className="mt-0.5 text-[12.5px] text-fg-muted">
+                    {formatTimestamp(movement.createdAt)}
+                    {movement.reason ? ` · ${movement.reason}` : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={btnGhost}
+                  onClick={() =>
+                    void run(async () => {
+                      await undoMovement(movement.id);
+                    })
+                  }
+                >
+                  Annuler
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <section>
         <h2 className="mb-2 text-[14px] font-medium">Séances liées</h2>
         <p className="mb-3 text-[12.5px] text-fg-muted">
           Traçabilité : chaque lien reste enregistré.
         </p>
-        {sessionsError && <p className="text-[13px] text-danger">{sessionsError}</p>}
-        {sessionsLoading ? (
+        {loading ? (
           <p className="text-[13px] text-fg-muted">Chargement…</p>
         ) : sessions.length === 0 ? (
           <p className="rounded-lg border border-line bg-surface px-4 py-6 text-center text-[13px] text-fg-muted">
-            Aucune séance pour ce produit.
+            Aucune séance pour ce lot.
           </p>
         ) : (
           <ul className="overflow-hidden rounded-lg border border-line bg-surface">
             {sessions.map((item, index) => (
               <li
-                key={`${item.sessionId}-${item.createdAt}`}
+                key={`${item.sessionId}-${item.unitId ?? item.lotId}-${item.createdAt}`}
                 className={index > 0 ? "border-t border-line px-4 py-3" : "px-4 py-3"}
               >
                 <p className="text-[14px] font-medium">
@@ -389,6 +769,7 @@ function ProductDetail({
                   {item.bodyArea ? ` · ${item.bodyArea}` : ""}
                   {" · "}
                   {STATUS_LABELS[item.status] ?? item.status}
+                  {item.quantity > 0 ? ` · ${item.quantity}` : ""}
                 </p>
               </li>
             ))}
@@ -400,7 +781,7 @@ function ProductDetail({
 }
 
 export default function ProductsPage() {
-  const { products, search, loading, error, load } = useProductsStore();
+  const { lots, search, loading, error, load } = useProductsStore();
   const [view, setView] = useState<View>({ kind: "list" });
 
   useEffect(() => {
@@ -409,14 +790,14 @@ export default function ProductsPage() {
 
   if (view.kind === "form") {
     return (
-      <ProductForm
-        product={view.product}
+      <LotForm
+        lot={view.lot}
         onDone={(saved) =>
           setView(
             saved
-              ? { kind: "detail", product: saved }
-              : view.product
-                ? { kind: "detail", product: view.product }
+              ? { kind: "detail", lot: saved }
+              : view.lot
+                ? { kind: "detail", lot: view.lot }
                 : { kind: "list" },
           )
         }
@@ -426,10 +807,11 @@ export default function ProductsPage() {
 
   if (view.kind === "detail") {
     return (
-      <ProductDetail
-        product={view.product}
-        onEdit={() => setView({ kind: "form", product: view.product })}
+      <LotDetail
+        lot={view.lot}
+        onEdit={() => setView({ kind: "form", lot: view.lot })}
         onBack={() => setView({ kind: "list" })}
+        onChange={(lot) => setView({ kind: "detail", lot })}
       />
     );
   }
@@ -440,13 +822,11 @@ export default function ProductsPage() {
         <div>
           <h1 className="text-[24px] font-medium tracking-tight">Produits</h1>
           <p className="mt-1 text-[13px] text-fg-muted">
-            {loading
-              ? "Chargement…"
-              : `${products.length} produit${products.length === 1 ? "" : "s"}`}
+            {loading ? "Chargement…" : `${lots.length} lot${lots.length === 1 ? "" : "s"}`}
           </p>
         </div>
         <button type="button" onClick={() => setView({ kind: "form" })} className={btnPrimary}>
-          Nouveau produit
+          Nouveau lot
         </button>
       </div>
 
@@ -460,10 +840,10 @@ export default function ProductsPage() {
 
       {error && <p className="text-[13px] text-danger">{error}</p>}
 
-      {!loading && products.length === 0 ? (
+      {!loading && lots.length === 0 ? (
         <div className="rounded-lg border border-line bg-surface px-5 py-10 text-center">
           <p className="text-[14px] text-fg-muted">
-            {search ? "Aucun résultat." : "Aucun produit pour le moment."}
+            {search ? "Aucun résultat." : "Aucun lot pour le moment."}
           </p>
           {!search && (
             <button
@@ -471,28 +851,34 @@ export default function ProductsPage() {
               onClick={() => setView({ kind: "form" })}
               className={`${btnGhost} mt-4`}
             >
-              Créer le premier produit
+              Créer le premier lot
             </button>
           )}
         </div>
       ) : (
         <ul className="overflow-hidden rounded-lg border border-line bg-surface">
-          {products.map((product, index) => (
-            <li key={product.id} className={index > 0 ? "border-t border-line" : undefined}>
+          {lots.map((lot, index) => (
+            <li key={lot.id} className={index > 0 ? "border-t border-line" : undefined}>
               <button
                 type="button"
-                onClick={() => setView({ kind: "detail", product })}
+                onClick={() => setView({ kind: "detail", lot })}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2"
               >
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="truncate text-[14px] font-medium">{product.name}</span>
+                    <span className="truncate text-[14px] font-medium">{lot.name}</span>
                     <span className="rounded-pill bg-surface-3 px-2 py-0.5 text-[11px] text-fg-muted">
-                      {product.singleUse ? "Unique" : "Encre"}
+                      {lot.singleUse ? "Unique" : "Multiple"}
                     </span>
+                    {lot.expired && (
+                      <span className="rounded-pill bg-surface-3 px-2 py-0.5 text-[11px] text-fg-muted">
+                        Périmé
+                      </span>
+                    )}
                   </span>
                   <span className="mt-0.5 block truncate text-[12.5px] text-fg-muted">
-                    Lot {product.lotNumber} · exp. {formatIsoDate(product.expirationDate)}
+                    Lot {lot.lotNumber} · exp. {formatIsoDate(lot.expirationDate)} ·{" "}
+                    {stockLabel(lot)}
                   </span>
                 </span>
               </button>

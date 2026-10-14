@@ -3,8 +3,8 @@ import { DateSelector } from "../../components/date-selector";
 import { useClientsStore } from "../../stores/clients-store";
 import {
   useProductsStore,
-  type Product,
-  type SessionProductItem,
+  type LinkableItem,
+  type SessionUsageItem,
 } from "../../stores/products-store";
 import {
   useSessionsStore,
@@ -230,9 +230,10 @@ function SessionForm({
 }
 
 function SessionProducts({ sessionId }: { sessionId: string }) {
-  const { listSessionProducts, listLinkable, linkToSession } = useProductsStore();
-  const [linked, setLinked] = useState<SessionProductItem[]>([]);
-  const [linkable, setLinkable] = useState<Product[]>([]);
+  const { listSessionUsages, listLinkable, linkToSession } = useProductsStore();
+  const [linked, setLinked] = useState<SessionUsageItem[]>([]);
+  const [linkable, setLinkable] = useState<LinkableItem[]>([]);
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -240,7 +241,7 @@ function SessionProducts({ sessionId }: { sessionId: string }) {
   const [linking, setLinking] = useState(false);
 
   async function refreshLinked() {
-    const items = await listSessionProducts(sessionId);
+    const items = await listSessionUsages(sessionId);
     setLinked(items);
   }
 
@@ -252,7 +253,7 @@ function SessionProducts({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void listSessionProducts(sessionId)
+    void listSessionUsages(sessionId)
       .then((items) => {
         if (!cancelled) {
           setLinked(items);
@@ -268,7 +269,7 @@ function SessionProducts({ sessionId }: { sessionId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [listSessionProducts, sessionId]);
+  }, [listSessionUsages, sessionId]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -285,11 +286,24 @@ function SessionProducts({ sessionId }: { sessionId: string }) {
     };
   }, [listLinkable, pickerOpen, pickerSearch, sessionId]);
 
-  async function link(productId: string) {
+  async function link(item: LinkableItem) {
+    let quantity: number | null = null;
+    if (item.singleUse) {
+      quantity = Number(quantities[item.lotId] ?? "1");
+      if (!Number.isInteger(quantity) || quantity <= 0) {
+        setError("La quantité consommée doit être un nombre positif");
+        return;
+      }
+    }
     setLinking(true);
     setError(null);
     try {
-      await linkToSession(sessionId, productId);
+      await linkToSession({
+        sessionId,
+        lotId: item.singleUse ? item.lotId : null,
+        unitId: item.unitId,
+        quantity,
+      });
       await refreshLinked();
       await refreshLinkable();
     } catch (linkError) {
@@ -323,7 +337,7 @@ function SessionProducts({ sessionId }: { sessionId: string }) {
         <div className="mb-3 rounded-lg border border-line bg-surface p-3">
           <input
             type="search"
-            placeholder="Rechercher un produit…"
+            placeholder="Rechercher un lot…"
             value={pickerSearch}
             onChange={(event) => setPickerSearch(event.target.value)}
             className={fieldClass}
@@ -333,26 +347,45 @@ function SessionProducts({ sessionId }: { sessionId: string }) {
               Aucun produit disponible à lier.
             </p>
           ) : (
-            <ul className="mt-2 max-h-48 overflow-y-auto">
-              {linkable.map((product) => (
+            <ul className="mt-2 max-h-64 overflow-y-auto">
+              {linkable.map((item) => (
                 <li
-                  key={product.id}
+                  key={item.unitId ?? item.lotId}
                   className="flex items-center gap-2 border-t border-line py-2 first:border-t-0"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13.5px] font-medium">
-                      {product.name}
-                    </span>
+                    <span className="block truncate text-[13.5px] font-medium">{item.name}</span>
                     <span className="block truncate text-[12px] text-fg-muted">
-                      Lot {product.lotNumber}
+                      Lot {item.lotNumber}
                       {" · "}
-                      {product.singleUse ? "Unique" : "Encre"}
+                      {item.singleUse
+                        ? `${item.stock} restant${item.stock > 1 ? "s" : ""}`
+                        : item.openedAt
+                          ? "Ouvert"
+                          : "Scellé"}
+                      {item.expired ? " · Périmé" : ""}
                     </span>
                   </span>
+                  {item.singleUse && (
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      aria-label={`Quantité pour ${item.name}`}
+                      value={quantities[item.lotId] ?? "1"}
+                      onChange={(event) =>
+                        setQuantities((current) => ({
+                          ...current,
+                          [item.lotId]: event.target.value,
+                        }))
+                      }
+                      className="w-16 rounded-md border border-line-strong bg-bg px-2 py-1 text-[13px] text-fg"
+                    />
+                  )}
                   <button
                     type="button"
                     disabled={linking}
-                    onClick={() => void link(product.id)}
+                    onClick={() => void link(item)}
                     className={btnPrimary}
                   >
                     Lier
@@ -374,16 +407,21 @@ function SessionProducts({ sessionId }: { sessionId: string }) {
         <ul className="overflow-hidden rounded-lg border border-line bg-surface">
           {linked.map((item, index) => (
             <li
-              key={`${item.productId}-${item.createdAt}`}
+              key={item.id}
               className={index > 0 ? "border-t border-line px-4 py-3" : "px-4 py-3"}
             >
               <p className="text-[14px] font-medium">{item.name}</p>
               <p className="mt-0.5 text-[12.5px] text-fg-muted">
                 Lot {item.lotNumber}
                 {" · "}
-                {item.singleUse ? "Unique" : "Encre"}
+                {item.singleUse
+                  ? `Usage unique · ${item.quantity}`
+                  : item.openedAt
+                    ? "Usage multiple · ouvert"
+                    : "Usage multiple · scellé"}
                 {" · exp. "}
                 {formatIsoDate(item.expirationDate)}
+                {item.expired ? " · Périmé" : ""}
               </p>
             </li>
           ))}

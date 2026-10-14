@@ -1,0 +1,130 @@
+---
+description: Règles UX/UI de Tracink — confirmations, états d'écran, formulaires, retours, clavier, accessibilité
+globs: src/**/*.tsx,src/**/*.ts,src/index.css
+alwaysApply: false
+---
+
+# UX / UI
+
+La tatoueuse utilise l'app entre deux clients, parfois avec des gants. Chaque écran doit être lisible d'un coup d'œil, pardonner les erreurs et ne jamais perdre une saisie. Direction artistique : `Charte.html`. Tokens : `src/index.css`.
+
+## 1. Confirmations
+
+Trois niveaux. Choisis selon l'effet de l'action, pas selon l'écran.
+
+| Niveau | Quand | Ce qu'on montre |
+| --- | --- | --- |
+| **Aucune confirmation** | Action réversible sans effet sur la traçabilité : créer ou modifier une fiche client, rechercher, naviguer, ouvrir un flacon (date modifiable) | Toast de succès |
+| **Dialogue de confirmation** | Action qui écrit dans la traçabilité ou le stock, ou qu'on ne peut défaire qu'avec une autre action tracée | Dialogue modal avec récapitulatif |
+| **Confirmation renforcée** | Action qui remplace ou efface des données en masse | Dialogue + saisie d'un mot ou du nom pour activer le bouton |
+
+**Dialogue obligatoire pour :**
+
+- lier un produit à une séance (le lien est permanent et consomme du stock) ;
+- sortir un flacon du stock (terminé, perdu, périmé, renvoyé) ;
+- enregistrer un mouvement de stock manuel (perte, ajustement, retour) ;
+- annuler un mouvement ou un lien ;
+- passer une séance à « Annulée » ou « Reportée » ;
+- utiliser un lot ou un flacon périmé (avertissement explicite, pas un blocage) ;
+- modifier l'identité d'un lot ou le client d'une séance, quand c'est encore permis ;
+- fermer un formulaire qui contient des modifications non enregistrées (« Abandonner les modifications ? »).
+
+**Confirmation renforcée pour :** restaurer une sauvegarde, importer des données qui remplacent l'existant, anonymiser ou effacer un client.
+
+**Contenu d'un dialogue :**
+
+- Titre = question avec le verbe : « Sortir ce flacon du stock ? ».
+- Corps = ce qui va se passer, avec les vrais noms : « Encre noire · lot ABC123 · flacon ouvert le 8 oct. Il ne sera plus proposé dans les séances. »
+- Conséquence irréversible dite clairement : « Ce lien restera dans l'historique de traçabilité. »
+- Champ motif quand le métier l'exige (ajustement, annulation).
+- Bouton principal = le verbe exact (« Sortir le flacon », « Lier à la séance »), jamais « OK » ni « Oui ». Style `danger` si l'action retire ou annule.
+- Bouton secondaire « Annuler », focus par défaut sur lui pour les actions danger.
+- `Échap` et clic sur le fond = annuler. `Entrée` = valider seulement si le focus est sur le bouton principal.
+
+```tsx
+// ❌ bloque la webview, texte générique, aucune info
+if (window.confirm("Êtes-vous sûr ?")) await exitUnit(id, "LOSS");
+
+// ✅ composant maison, récapitulatif, verbe exact
+const ok = await confirm({
+  title: "Sortir ce flacon du stock ?",
+  body: `${lot.name} · lot ${lot.lotNumber} · ${openedLabel}`,
+  confirmLabel: "Sortir le flacon",
+  tone: "danger",
+});
+if (ok) await exitUnit(unit.id, "LOSS");
+```
+
+Ne jamais utiliser `window.confirm`, `window.alert` ou `window.prompt`. Utiliser un composant `ConfirmDialog` (avec un hook `useConfirm`) dans `src/components/`. Le créer s'il n'existe pas encore.
+
+## 2. États d'un écran
+
+Chaque écran qui charge des données gère les quatre états :
+
+- **Chargement** : squelette ou texte discret après ~200 ms. Pas de spinner plein écran.
+- **Vide** : phrase qui explique et bouton d'action (« Aucun client. Ajouter un client »). Différencier « aucune donnée » et « aucun résultat pour cette recherche ».
+- **Erreur** : message français compréhensible, action possible (« Réessayer »). Jamais d'erreur SQL brute, de pile ou de JSON.
+- **Succès** : les données, et un toast après une écriture.
+
+## 3. Retours après action
+
+- Toast court (≈ 3 s) pour un succès : « Client enregistré ». Pas de toast pour une simple navigation.
+- Erreur de validation : sous le champ concerné, pas en toast.
+- Erreur serveur Rust : bandeau dans le formulaire ou le dialogue, la saisie reste en place.
+- Pendant l'envoi : bouton désactivé, libellé en cours (« Enregistrement… »). Empêcher le double clic et la double soumission.
+- Une action longue (sauvegarde, export) montre une progression ou au moins un état « en cours ».
+
+## 4. Formulaires
+
+- Champs obligatoires marqués. Validation à la soumission puis en direct sur le champ corrigé.
+- La validation React sert le confort ; la validation qui compte est en Rust.
+- Premier champ en focus à l'ouverture. `Entrée` soumet, `Échap` ferme (avec confirmation si modifié).
+- Ne jamais vider le formulaire après une erreur.
+- Dates avec `DateSelector`. Quantités en champ numérique avec bornes.
+- Libellé au-dessus du champ, aide courte en dessous si besoin. Pas de placeholder à la place d'un libellé.
+- Unités et formats explicites : « Durée après ouverture (mois) ».
+
+## 5. Alertes métier
+
+Montrer les risques là où la décision se prend, pas seulement sur le dashboard :
+
+- lot ou flacon périmé, ou qui expire dans moins de 30 jours ;
+- stock faible ;
+- client mineur (calculé depuis `birth_date`) ;
+- séance sans produit lié une fois terminée.
+
+Couleur + icône + texte. Jamais la couleur seule. Tokens : `success`, `warning`, `danger`, `info`.
+
+## 6. Listes et recherche
+
+- Recherche avec délai (~200 ms) et conservée quand on revient sur la liste.
+- Tri par défaut utile : séances par date décroissante, clients par nom, lots par péremption la plus proche.
+- Au-delà de quelques centaines de lignes : pagination ou liste virtualisée.
+- Un clic sur une ligne ouvre le détail. Les actions destructives ne sont jamais au survol seul.
+
+## 7. Clavier et macOS
+
+- Raccourcis : `⌘N` nouveau, `⌘F` recherche, `⌘S` enregistrer dans un formulaire, `Échap` fermer ou retour, `⌘,` paramètres (quand l'écran existe).
+- Tout est atteignable au clavier, ordre de tabulation logique, focus toujours visible.
+- Respecter les conventions macOS : boutons principaux à droite, « Annuler » à gauche du bouton principal.
+
+## 8. Accessibilité
+
+- Tout contrôle a un libellé (`<label>`, `aria-label`).
+- Dialogue : `role="dialog"`, `aria-modal`, titre relié, focus piégé dedans, focus rendu à l'élément d'origine à la fermeture.
+- Contraste suffisant dans les deux thèmes (clair et sombre suivent le système).
+- Cibles de clic d'au moins 28 px de haut.
+- Animations courtes (`--t-fast`, `--t-base`) et désactivées avec `prefers-reduced-motion`.
+
+## 9. Textes
+
+- Français, tutoiement, phrases courtes. Skill `writing-guidelines`.
+- Libellés métier stables : « séance », « lot », « flacon », « usage unique ». Ne pas alterner avec « pièce », « session » ou « produit » à l'écran.
+- Dates longues : « 14 oct. 2026 ». Dates relatives pour les échéances : « expire dans 12 jours ».
+- Message d'erreur = ce qui s'est passé + quoi faire : « Ce flacon est déjà sorti du stock. Annule la sortie pour le réutiliser. »
+
+## 10. Style
+
+- Couleurs, rayons, durées : uniquement les tokens de `index.css`. Pas de couleur codée en dur.
+- Composant réutilisé deux fois → `src/components/`. Variantes explicites (`tone="danger"`), pas de booléens empilés.
+- Skills utiles : `apple-design`, `emil-design-eng`, `web-design-guidelines`, `review-animations`.

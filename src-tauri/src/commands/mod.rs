@@ -2,11 +2,15 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::config::{AppPaths, AppPathsDto, AppSettings};
-use crate::models::{Client, Product};
+use crate::models::{Client, StockMovement};
 use crate::services::clients::{self, ClientInput};
-use crate::services::products::{self, ProductInput};
-use crate::services::session_products::{self, ProductSessionItem, SessionProductItem};
+use crate::services::lots::{self, CreateLotInput, LotSummary, UpdateLotInput};
+use crate::services::session_usages::{
+    self, LinkSessionInput, LinkableItem, LotSessionItem, SessionUsageItem,
+};
 use crate::services::sessions::{self, SessionInput, SessionListItem};
+use crate::services::stock::{self, RecordMovementInput};
+use crate::services::units::{self, UnitView};
 use crate::{config, services};
 
 #[tauri::command]
@@ -96,81 +100,156 @@ pub async fn update_session(
 }
 
 #[tauri::command]
-pub async fn list_products(
+pub async fn list_lots(
     pool: State<'_, SqlitePool>,
     search: Option<String>,
-) -> Result<Vec<Product>, String> {
-    products::list_products(pool.inner(), search)
+) -> Result<Vec<LotSummary>, String> {
+    lots::list_lots(pool.inner(), search)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn get_product(pool: State<'_, SqlitePool>, id: String) -> Result<Product, String> {
-    products::get_product(pool.inner(), &id)
+pub async fn get_lot(pool: State<'_, SqlitePool>, id: String) -> Result<LotSummary, String> {
+    lots::get_lot(pool.inner(), &id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn create_product(
+pub async fn find_lot(
     pool: State<'_, SqlitePool>,
-    input: ProductInput,
-) -> Result<Product, String> {
-    products::create_product(pool.inner(), input)
+    name: String,
+    lot_number: String,
+) -> Result<Option<LotSummary>, String> {
+    lots::find_lot(pool.inner(), &name, &lot_number)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn update_product(
+pub async fn create_lot(
+    pool: State<'_, SqlitePool>,
+    input: CreateLotInput,
+) -> Result<LotSummary, String> {
+    lots::create_lot(pool.inner(), input)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn update_lot(
     pool: State<'_, SqlitePool>,
     id: String,
-    input: ProductInput,
-) -> Result<Product, String> {
-    products::update_product(pool.inner(), &id, input)
+    input: UpdateLotInput,
+) -> Result<LotSummary, String> {
+    lots::update_lot(pool.inner(), &id, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn list_session_products(
+pub async fn list_lot_units(
+    pool: State<'_, SqlitePool>,
+    lot_id: String,
+) -> Result<Vec<UnitView>, String> {
+    units::list_units(pool.inner(), &lot_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn open_unit(
+    pool: State<'_, SqlitePool>,
+    unit_id: String,
+    opened_at: String,
+) -> Result<UnitView, String> {
+    units::open_unit(pool.inner(), &unit_id, opened_at)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn exit_unit(
+    pool: State<'_, SqlitePool>,
+    unit_id: String,
+    movement_type: String,
+) -> Result<UnitView, String> {
+    units::exit_unit(pool.inner(), &unit_id, &movement_type)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn record_lot_movement(
+    pool: State<'_, SqlitePool>,
+    input: RecordMovementInput,
+) -> Result<LotSummary, String> {
+    lots::record_movement(pool.inner(), input)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn undo_lot_movement(
+    pool: State<'_, SqlitePool>,
+    movement_id: String,
+) -> Result<LotSummary, String> {
+    let lot_id = stock::undo_movement(pool.inner(), &movement_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    lots::get_lot(pool.inner(), &lot_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_lot_movements(
+    pool: State<'_, SqlitePool>,
+    lot_id: String,
+) -> Result<Vec<StockMovement>, String> {
+    stock::list_movements(pool.inner(), &lot_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_lot_sessions(
+    pool: State<'_, SqlitePool>,
+    lot_id: String,
+) -> Result<Vec<LotSessionItem>, String> {
+    session_usages::list_lot_sessions(pool.inner(), &lot_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_session_usages(
     pool: State<'_, SqlitePool>,
     session_id: String,
-) -> Result<Vec<SessionProductItem>, String> {
-    session_products::list_session_products(pool.inner(), &session_id)
+) -> Result<Vec<SessionUsageItem>, String> {
+    session_usages::list_session_usages(pool.inner(), &session_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn list_product_sessions(
-    pool: State<'_, SqlitePool>,
-    product_id: String,
-) -> Result<Vec<ProductSessionItem>, String> {
-    session_products::list_product_sessions(pool.inner(), &product_id)
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub async fn link_session_product(
-    pool: State<'_, SqlitePool>,
-    session_id: String,
-    product_id: String,
-) -> Result<SessionProductItem, String> {
-    session_products::link_session_product(pool.inner(), &session_id, &product_id)
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub async fn list_linkable_products(
+pub async fn list_linkable_usages(
     pool: State<'_, SqlitePool>,
     session_id: String,
     search: Option<String>,
-) -> Result<Vec<Product>, String> {
-    session_products::list_linkable_products(pool.inner(), &session_id, search)
+) -> Result<Vec<LinkableItem>, String> {
+    session_usages::list_linkable(pool.inner(), &session_id, search)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn link_session_usage(
+    pool: State<'_, SqlitePool>,
+    input: LinkSessionInput,
+) -> Result<SessionUsageItem, String> {
+    session_usages::link_session(pool.inner(), input)
         .await
         .map_err(|error| error.to_string())
 }

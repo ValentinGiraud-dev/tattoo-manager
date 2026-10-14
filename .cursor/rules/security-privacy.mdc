@@ -1,0 +1,37 @@
+---
+description: Sécurité et confidentialité — données de santé, journaux, sauvegardes, réseau
+alwaysApply: true
+---
+
+# Sécurité et confidentialité
+
+Tracink contient des données personnelles et, avec les questionnaires, des données de santé (catégorie sensible du RGPD). Traiter chaque donnée client comme confidentielle.
+
+## Données
+
+- Collecter seulement ce qui sert. Un nouveau champ client ou santé doit avoir un usage clair.
+- Données dans le dossier de l'app (`AppPaths`) uniquement. Jamais dans le dépôt, `/tmp`, `localStorage` ou un fichier exporté sans action explicite de l'utilisatrice.
+- Exports (PDF, CSV) : seulement à la demande, avec dialogue d'enregistrement, et en le signalant à l'écran.
+- Pas de suppression physique des données tracées. Une demande d'effacement passera par une anonymisation documentée, à concevoir avec la tatoueuse.
+- Durées de conservation : ne pas les inventer. Les rendre paramétrables et demander.
+
+## Journaux
+
+- Aucun nom, téléphone, e-mail, date de naissance ou réponse de santé dans les journaux, messages d'erreur techniques ou rapports de plantage.
+- Un identifiant technique (`id`) suffit pour diagnostiquer.
+
+## Réseau
+
+- L'app fonctionne hors ligne. Seule requête sortante : l'updater vers les releases GitHub.
+- Pas de télémétrie, d'analytics, de police ou script chargé depuis Internet à l'exécution.
+- CSP à définir dans `tauri.conf.json` (aujourd'hui `null`) quand on y touche : `default-src 'self'`.
+
+## Sauvegardes
+
+- Une sauvegarde contient tout. Elle reste dans le dossier de l'app ou dans un dossier choisi par l'utilisatrice.
+- Chiffrement de la base et verrouillage de l'app : prévus avant l'arrivée des questionnaires de santé.
+
+## Secrets
+
+- Clé privée de signature de l'updater et mots de passe : variables d'environnement ou trousseau, jamais dans le dépôt (`.gitignore` couvre `.env*` et `*.key`).
+- Ne jamais afficher ni copier un secret dans un message, un log ou un commit.

@@ -1,44 +1,77 @@
 ---
-description: Modèle de données V1 — clients, séances, produits et traçabilité
+description: Modèle de données V1 — clients, séances, lots, pièces et stock
 alwaysApply: true
 ---
 
 # Données V1
 
-Spec détaillée : `database-start.md`. Le schéma SQLite de départ suit ce modèle. Stock, lot séparé, hygiène et documents restent hors base.
+Spec détaillée : `database-start.md`. Le schéma SQLite suit ce modèle. Hygiène et documents restent hors base.
 
 ```text
-CLIENT 1──< SESSION ──< SESSION_PRODUCT >── PRODUCT
+CLIENT 1──< SESSION ──< SESSION_USAGE >── LOT
+                │                         │
+                │                         └── UNIT (pièce, usage multiple seulement)
                 ├── consent questionnaire (session_id)
                 └── health questionnaire (session_id)
+
+LOT 1──< STOCK_MOVEMENT
+UNIT 1──< STOCK_MOVEMENT
 ```
 
 ## Champs
 
 - `clients` : `id`, `first_name`, `last_name`, `created_at`, `updated_at` obligatoires. `birth_date`, `email`, `phone`, `notes` optionnels.
 - `sessions` : `client_id`, `date`, `status`, `created_at`, `updated_at` obligatoires. Statuts V1 : `PLANNED`, `COMPLETED`, `CANCELLED`, `RESCHEDULED`. `body_area`, `description`, `notes` optionnels.
-- `products` : `name`, `lot_number`, `expiration_date`, `single_use` obligatoires. `creation_date`, `opened_at`, `after_opening_months`, `product_url` optionnels. `opened_at` NULL = jamais ouvert. `after_opening_months` est la durée en mois après ouverture. La limite utile est la plus proche entre `expiration_date` et `opened_at` plus cette durée. `single_use` vaut 1 pour une aiguille, 0 pour une encre. Le lot est une colonne, pas une table.
-- `session_products` : `session_id`, `product_id`, `created_at`.
+- `lots` : `name`, `lot_number`, `expiration_date`, `single_use`, `created_at`, `updated_at` obligatoires. `creation_date`, `after_opening_months`, `product_url` optionnels. Identité : couple nom + numéro, sans tenir compte de la casse. `single_use` vaut 1 pour un usage unique (aiguille, cartouche, gant), 0 pour un usage multiple (encre, et tout produit réutilisé). `after_opening_months` est interdit quand `single_use` vaut 1. Un même numéro peut couvrir plusieurs lots si les noms diffèrent : une boîte d'aiguilles de plusieurs tailles est un lot par taille.
+- `units` : pièces d'un lot à usage multiple. `lot_id`, `created_at`, `updated_at` obligatoires. `opened_at` optionnel. Un lot usage unique n'en a aucune.
+- `stock_movements` : `lot_id`, `type`, `quantity`, `created_at` obligatoires. `unit_id`, `session_id`, `reason` optionnels. Types : `PURCHASE`, `CONSUMPTION`, `LOSS`, `EXPIRATION`, `RETURN`, `ADJUSTMENT`. La quantité affichée est la somme des mouvements. Elle n'est jamais stockée ni écrasée.
+- `session_usages` : `session_id`, `created_at`, et exactement un de `lot_id` ou `unit_id`. Ces liens ne se suppriment pas.
 
 Les questionnaires ont un `session_id`. Leurs champs métier ne sont pas figés. Une séance a les siens ; un client n'a pas un questionnaire global.
+
+## Stock
+
+- Usage unique : le stock du lot est `SUM(quantity)`. « Boîte de 50 » est un `PURCHASE` de +50. Lier le lot à une séance écrit un `CONSUMPTION` de −N. Relier le même lot ajoute un mouvement, sans dupliquer le lien. Un mouvement qui passerait sous zéro est refusé.
+- Encre et tout usage multiple : « lot de 6 » crée 6 pièces, chacune avec un `PURCHASE` de +1. Le stock est le nombre de pièces dont la somme des mouvements est positive. Lier une pièce à une séance ne change pas le stock. La sortir (terminé, perdu, périmé, renvoyé) est un mouvement −1. Une pièce terminée est un `CONSUMPTION` sans séance. Annuler un mouvement ajoute le mouvement inverse ; l'original reste dans l'historique.
+- Un lot périmé reste sélectionnable. Rien n'est jeté automatiquement.
+- Un ajustement a une raison.
 
 ## Traçabilité
 
 ```sql
--- ❌ lot séparé, stock, questionnaire sur le client
-INSERT INTO lots (number) VALUES ('LOT-123');
-UPDATE products SET quantity = quantity - 1;
+-- ❌ quantité écrasée, questionnaire sur le client
+UPDATE lots SET quantity = quantity - 1;
 UPDATE clients SET consent = '...';
 
--- ✅ lien séance ↔ produit
-INSERT INTO session_products (session_id, product_id, created_at)
+-- ✅ mouvement, puis lien séance
+INSERT INTO stock_movements (lot_id, type, quantity, session_id, created_at)
+VALUES (?, 'CONSUMPTION', -1, ?, ?);
+INSERT INTO session_usages (session_id, lot_id, created_at)
 VALUES (?, ?, ?);
 ```
 
-Depuis une séance : ses produits. Depuis un produit : ses séances. Depuis un client : séances, puis produits. Ces liens ne se suppriment pas.
+Depuis une séance : ses lots ou pièces. Depuis un lot : ses séances. Depuis un client : séances, puis lots. Ces liens ne se suppriment pas.
+
+## Invariants d'intégrité
+
+Ces règles protègent la traçabilité. Les services Rust les appliquent ; l'UI les explique.
+
+- Une séance qui a au moins un `session_usage` ne change plus de client.
+- Un lot qui a au moins un `session_usage` ne change plus de `name`, `lot_number`, `expiration_date` ni `single_use`. Une erreur de saisie se corrige par une action motivée et journalisée, pas par un `UPDATE` silencieux.
+- `single_use` ne change jamais après la création du lot.
+- Un lien séance–produit erroné ne se supprime pas : il s'annule par un enregistrement d'annulation avec motif (table à créer), et le stock est rétabli par un mouvement inverse.
+- Le statut « périmé » est calculé en Rust, en un seul endroit, avec la date locale du jour : `expiration_date` pour un lot, la plus proche de `expiration_date` et `opened_at + after_opening_months` pour une pièce ouverte. React n'en recalcule pas.
+- Aucun `DELETE` sur `clients`, `sessions`, `lots`, `units`, `stock_movements`, `session_usages`. Une future suppression RGPD passera par une anonymisation documentée.
+
+## Dates
+
+- Horodatages techniques (`created_at`, `updated_at`) : UTC, ISO 8601.
+- Dates métier (`date` de séance, `expiration_date`, `opened_at`, `birth_date`) : date locale `AAAA-MM-JJ`.
+- « Aujourd'hui » se calcule en Rust avec `chrono::Local`, pas avec `date('now')` qui est en UTC.
+- Affichage : `Intl.DateTimeFormat("fr-FR")`.
 
 ## Principes
 
-- Une séance appartient à un seul client. Un produit peut servir plusieurs séances.
-- Quatre tables, plus les deux questionnaires quand leurs champs seront connus.
-- Scanner, mouvements de stock, fournisseurs, hygiène et documents s'ajoutent quand le besoin est défini.
+- Une séance appartient à un seul client. Un lot usage unique et une pièce à usage multiple peuvent servir plusieurs séances.
+- La limite utile d'une pièce ouverte est la plus proche entre `expiration_date` et `opened_at` plus `after_opening_months`. Pour un usage unique, seule `expiration_date` compte.
+- Scanner, fournisseurs, hygiène et documents s'ajoutent quand le besoin est défini.

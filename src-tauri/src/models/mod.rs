@@ -1,12 +1,16 @@
 mod client;
-mod product;
+mod lot;
 mod session;
-mod session_product;
+mod session_usage;
+mod stock_movement;
+mod unit;
 
 pub use client::Client;
-pub use product::Product;
+pub use lot::Lot;
 pub use session::{Session, SessionStatus};
-pub use session_product::SessionProduct;
+pub use session_usage::SessionUsage;
+pub use stock_movement::StockMovement;
+pub use unit::Unit;
 
 #[cfg(test)]
 mod tests {
@@ -34,51 +38,37 @@ mod tests {
     }
 
     #[test]
-    fn v1_models_link_client_session_and_product() {
-        let client = Client {
-            id: "client-1".into(),
-            first_name: "Léa".into(),
-            last_name: "Martin".into(),
-            birth_date: None,
-            email: None,
-            phone: None,
-            notes: None,
-            created_at: "2026-10-08T14:00:00".into(),
-            updated_at: "2026-10-08T14:00:00".into(),
-        };
-        let session = Session {
-            id: "session-1".into(),
-            client_id: client.id.clone(),
-            date: "2026-10-08T15:00:00".into(),
-            status: SessionStatus::Planned,
-            body_area: Some("avant-bras".into()),
-            description: None,
-            notes: None,
-            created_at: "2026-10-08T14:00:00".into(),
-            updated_at: "2026-10-08T14:00:00".into(),
-        };
-        let product = Product {
-            id: "product-1".into(),
+    fn lot_links_a_session_to_a_bottle_or_a_single_use_lot() {
+        let lot = Lot {
+            id: "lot-1".into(),
             name: "Encre noire".into(),
             lot_number: "LOT-123".into(),
             creation_date: None,
-            opened_at: None,
             expiration_date: "2030-01-01".into(),
-            after_opening_months: Some(12),
             single_use: false,
+            after_opening_months: Some(12),
             product_url: None,
             created_at: "2026-10-08T14:00:00".into(),
             updated_at: "2026-10-08T14:00:00".into(),
         };
-        let link = SessionProduct {
-            session_id: session.id.clone(),
-            product_id: product.id.clone(),
+        let unit = Unit {
+            id: "unit-1".into(),
+            lot_id: lot.id.clone(),
+            opened_at: None,
+            created_at: "2026-10-08T14:00:00".into(),
+            updated_at: "2026-10-08T14:00:00".into(),
+        };
+        let link = SessionUsage {
+            id: "usage-1".into(),
+            session_id: "session-1".into(),
+            lot_id: None,
+            unit_id: Some(unit.id.clone()),
             created_at: "2026-10-08T15:00:00".into(),
         };
 
-        assert_eq!(session.client_id, client.id);
-        assert_eq!(link.session_id, session.id);
-        assert_eq!(link.product_id, product.id);
-        assert_eq!(product.after_opening_months, Some(12));
+        assert_eq!(unit.lot_id, lot.id);
+        assert_eq!(link.unit_id.as_deref(), Some(unit.id.as_str()));
+        assert!(link.lot_id.is_none());
+        assert_eq!(lot.after_opening_months, Some(12));
     }
 }

@@ -198,7 +198,7 @@ Un client peut avoir des réponses différentes d’une séance à l’autre.
 
 📦 Produit
 
-Un produit représente un produit physique pouvant être utilisé pendant une séance.
+Un produit à l'écran est un lot : ce qu'on achète et ce qu'on trace. Une encre a en plus un flacon par bouteille, parce que chaque bouteille s'ouvre à une date différente.
 
 Exemples :
 
@@ -208,52 +208,52 @@ Exemples :
 * consommable ;
 * autre matériel.
 
-Pour la V1, les produits sont créés manuellement.
-
-La possibilité de scanner automatiquement les produits sera ajoutée ultérieurement.
+Les lots sont créés à la main. La possibilité de scanner sera ajoutée ultérieurement.
 
 ⸻
 
-Informations V1
+Informations
 
-Product
+Lot
 ├── id
 ├── name
 ├── lot_number
 ├── creation_date
-├── opened_at
 ├── expiration_date
-├── after_opening_months
 ├── single_use
+├── after_opening_months
 ├── product_url
 ├── created_at
 └── updated_at
 
-Champs
+Champs du lot
 
 Champ	Type conceptuel	Obligatoire	Description
 id	UUID / ID	Oui	Identifiant unique
 name	TEXT	Oui	Nom du produit
-lot_number	TEXT	Oui	Numéro de lot
-creation_date	DATE	Non	Date de création/fabrication indiquée sur le produit
-opened_at	DATETIME	Non	Date/heure d’ouverture
-expiration_date	DATE	Oui	Date de péremption imprimée sur le produit
-after_opening_months	INTEGER	Non	Nombre de mois d’utilisation après ouverture
-single_use	BOOLEAN	Oui	1 = usage unique (aiguille), 0 = réutilisable (encre)
+lot_number	TEXT	Oui	Numéro de lot, unique avec le nom
+creation_date	DATE	Non	Date de fabrication indiquée sur le lot
+expiration_date	DATE	Oui	Date de péremption imprimée
+after_opening_months	INTEGER	Non	Mois d'utilisation après ouverture. Interdit si usage unique
+single_use	BOOLEAN	Oui	1 = usage unique, 0 = encre
 product_url	TEXT	Non	Lien vers la fiche du produit
-created_at	DATETIME	Oui	Date d’ajout dans l’application
+created_at	DATETIME	Oui	Date d'ajout
 updated_at	DATETIME	Oui	Dernière modification
 
-opened_at peut être NULL.
+L'identité d'un lot est le couple nom + numéro, sans tenir compte de la casse.
 
-NULL
-↓
-Produit jamais ouvert
-2026-10-08 14:32
-↓
-Produit ouvert
+Usage unique : pas de flacon, pas de `opened_at`, pas de `after_opening_months`. La limite utile est `expiration_date`.
 
-after_opening_months peut être NULL. NULL signifie qu’il n’y a pas de limite plus courte après ouverture.
+Encre : un flacon par bouteille.
+
+Unit
+├── id
+├── lot_id
+├── opened_at
+├── created_at
+└── updated_at
+
+`opened_at` vide : flacon scellé, seule `expiration_date` compte. Une fois ouvert, la limite utile est la plus proche entre `expiration_date` et `opened_at` plus `after_opening_months`.
 
 Exemple :
 
@@ -263,80 +263,46 @@ after_opening_months = 6
 opened_at = 2026-10-08
 ```
 
-La limite utile est la plus proche des deux : ici le 2027-04-08, pas 2030. Tant que `opened_at` est NULL, seule `expiration_date` compte.
+La limite utile est le 2027-04-08.
 
 ⸻
 
 🔗 Produits utilisés pendant une séance
 
-Une séance peut utiliser plusieurs produits.
+Une séance peut utiliser plusieurs lots ou flacons.
 
-Un produit peut potentiellement être associé à plusieurs séances.
+Un lot usage unique, et un flacon d'encre, peuvent servir plusieurs séances.
 
-Cela représente donc une relation N:N.
-
-Session
-   │
-   ├──── Product
-   ├──── Product
-   └──── Product
-
-Pour cela, il faudra une table intermédiaire.
-
-SessionProduct
+SessionUsage
+├── id
 ├── session_id
-├── product_id
+├── lot_id
+├── unit_id
 └── created_at
+
+Exactement un de `lot_id` ou `unit_id` est rempli.
 
 Exemple
 
 Session #123
     │
-    ├── Encre noire / LOT-123
-    ├── Encre rouge / LOT-456
-    └── Cartouche / LOT-789
+    ├── Encre noire / LOT-123 / flacon ouvert le 8 octobre
+    ├── Encre rouge / LOT-456 / flacon scellé
+    └── Aiguille 3RL / LOT-789 / 2 pièces
 
-Cette table constitue la première base de la traçabilité.
+Lier une aiguille consomme la quantité sur le lot. Lier un flacon ne change pas le stock.
+
+Cette table constitue la base de la traçabilité. Les liens ne se suppriment pas.
 
 ⸻
 
 🔎 Traçabilité
 
-La V1 doit permettre de répondre à des questions simples :
+Depuis une séance : ses lots et ses flacons.
 
-Depuis une séance
+Depuis un lot : ses séances.
 
-Quels produits ont été utilisés pendant cette séance ?
-
-Séance
-  ↓
-SessionProduct
-  ↓
-Produits
-
-Depuis un produit
-
-Dans quelles séances ce produit a-t-il été utilisé ?
-
-Produit
-  ↓
-SessionProduct
-  ↓
-Séances
-
-Depuis un client
-
-Quels produits ont été utilisés pour ce client ?
-
-Client
-  ↓
-Séances
-  ↓
-SessionProduct
-  ↓
-Produits
-
-Cela permettra déjà d’avoir une première vraie traçabilité.
+Depuis un client : ses séances, puis les lots et flacons.
 
 ⸻
 
@@ -375,30 +341,45 @@ Cela permettra déjà d’avoir une première vraie traçabilité.
        │ N:N
        ▼
 ┌──────────────────┐
-│ SESSION_PRODUCT  │
+│  SESSION_USAGE   │
 ├──────────────────┤
+│ id               │
 │ session_id       │
-│ product_id       │
+│ lot_id           │
+│ unit_id          │
 │ created_at       │
 └────────┬─────────┘
          │
          │ N:1
          ▼
 ┌──────────────────┐
-│     PRODUCT      │
+│       LOT        │
 ├──────────────────┤
 │ id               │
 │ name             │
 │ lot_number       │
 │ creation_date    │
-│ opened_at        │
 │ expiration_date  │
-│ after_opening_months │
 │ single_use       │
+│ after_opening_months │
 │ product_url      │
 │ created_at       │
 │ updated_at       │
+└────────┬─────────┘
+         │
+         │ 1:N  (encre seulement)
+         ▼
+┌──────────────────┐
+│       UNIT       │
+├──────────────────┤
+│ id               │
+│ lot_id           │
+│ opened_at        │
+│ created_at       │
+│ updated_at       │
 └──────────────────┘
+
+Le stock est une liste de STOCK_MOVEMENT rattachée au lot, et au flacon quand c'est une encre.
 
 Les questionnaires seront liés directement à SESSION :
 
@@ -416,20 +397,12 @@ Le modèle doit permettre d’ajouter progressivement de nouvelles fonctionnalit
 
 Produits
 
-Plus tard, un produit pourra avoir :
+Plus tard, un lot pourra aussi avoir :
 
-Product
-├── name
+Lot
 ├── brand
 ├── reference
 ├── category
-├── lot_number
-├── creation_date
-├── opened_at
-├── expiration_date
-├── after_opening_months
-├── single_use
-├── product_url
 ├── supplier
 └── ...
 
@@ -453,21 +426,24 @@ La structure actuelle ne doit donc pas empêcher l’ajout de cette fonctionnali
 
 Stock
 
-Le stock n’est pas réellement géré dans la V1.
+La quantité affichée est la somme des mouvements. Elle n'est jamais écrasée.
 
-Il pourra être ajouté plus tard avec :
-
-Product
+Lot
    ↓
 StockMovement
 
-Exemples :
+Un flacon d'encre a ses propres mouvements, de +1 ou −1.
+
+Types :
 
 PURCHASE
 CONSUMPTION
 LOSS
 EXPIRATION
+RETURN
 ADJUSTMENT
+
+Usage unique : lier à une séance consomme une quantité. Encre : lier un flacon ne change pas le stock. Le sortir est un mouvement à part. Un lot périmé reste sélectionnable.
 
 ⸻
 
@@ -556,9 +532,8 @@ Il ne faut donc pas simplement stocker un questionnaire global sur le client.
 Le système doit pouvoir accueillir plus tard :
 
 * scanner ;
-* stock ;
-* fournisseurs ;
-* inventaire ;
+* marques et fournisseurs ;
+* inventaire avancé ;
 * hygiène ;
 * stérilisation ;
 * documents ;
@@ -583,17 +558,10 @@ CLIENT
           │
           ├── HEALTH QUESTIONNAIRE
           │
-          └──< SESSION_PRODUCT >── PRODUCT
-                                      │
-                                      ├── name
-                                      ├── lot_number
-                                      ├── creation_date
-                                      ├── opened_at
-                                      ├── expiration_date
-                                      ├── after_opening_months
-                                      ├── single_use
-                                      └── product_url
+          └──< SESSION_USAGE >── LOT ──< UNIT
+                                 │
+                                 └──< STOCK_MOVEMENT
 
-Ce modèle constitue la base de départ de la base SQLite.
-
-Il doit rester suffisamment simple pour permettre une première implémentation rapide, tout en conservant les relations nécessaires à l’évolution future de l’application.
+Le lot porte le nom, le numéro, la péremption, le type et la durée après ouverture.
+Le flacon, seulement pour une encre, porte la date d'ouverture.
+Le stock est la somme des mouvements.
