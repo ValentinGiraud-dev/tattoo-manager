@@ -30,7 +30,7 @@ interface ClientsState {
   load: (search?: string) => Promise<void>;
   create: (input: ClientInput) => Promise<Client>;
   update: (id: string, input: ClientInput) => Promise<Client>;
-} 
+}
 
 export const useClientsStore = create<ClientsState>((set, get) => ({
   clients: [],

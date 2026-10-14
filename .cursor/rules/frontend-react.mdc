@@ -12,7 +12,7 @@ Lire aussi `ux-ui.mdc`.
 
 ```text
 src/
-├── components/        composants partagés (ConfirmDialog, Toast, Field, Button…)
+├── components/        composants partagés (confirm-dialog + use-confirm, unsaved-changes, date-selector…)
 ├── features/<domaine>/ écrans d'un domaine (clients, sessions, products…)
 ├── stores/            un store Zustand par domaine + ui-store + settings-store
 ├── lib/               utilitaires sans React (formatage de dates, erreurs…)

@@ -1,15 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { DateSelector } from "../../components/date-selector";
-import {
-  useClientsStore,
-  type Client,
-  type ClientInput,
-} from "../../stores/clients-store";
+import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
+import { useClientsStore, type Client, type ClientInput } from "../../stores/clients-store";
 
 type View =
-  | { kind: "list" }
-  | { kind: "form"; client?: Client }
-  | { kind: "detail"; client: Client };
+  { kind: "list" } | { kind: "form"; client?: Client } | { kind: "detail"; client: Client };
 
 const emptyToNull = (value: string) => (value.trim() === "" ? null : value.trim());
 
@@ -19,7 +14,7 @@ const labelClass = "block text-[12.5px] font-medium text-fg-muted";
 const btnPrimary =
   "inline-flex items-center rounded-pill bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-fg transition-[filter] hover:brightness-110 disabled:opacity-45";
 const btnGhost =
-  "inline-flex items-center rounded-pill border border-line-strong px-3.5 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg";
+  "inline-flex items-center rounded-pill border border-line-strong px-3.5 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg disabled:opacity-45";
 
 function initials(client: Client) {
   return `${client.firstName.charAt(0)}${client.lastName.charAt(0)}`.toUpperCase();
@@ -41,16 +36,13 @@ function formatBirthDate(value: string | null) {
   }).format(date);
 }
 
-function ClientForm({
-  client,
-  onDone,
-}: {
-  client?: Client;
-  onDone: (saved?: Client) => void;
-}) {
+function ClientForm({ client, onDone }: { client?: Client; onDone: (saved?: Client) => void }) {
   const { create, update } = useClientsStore();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const guardedLeave = useGuardedLeave();
+  useUnsavedChanges(dirty);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -68,6 +60,7 @@ function ClientForm({
     setError(null);
     try {
       const saved = client ? await update(client.id, input) : await create(input);
+      setDirty(false);
       onDone(saved);
     } catch (submitError) {
       setError(String(submitError));
@@ -77,9 +70,19 @@ function ClientForm({
   }
 
   return (
-    <form onSubmit={(event) => void submit(event)} className="mx-auto flex max-w-xl flex-col gap-4 px-8 py-10">
+    <form
+      onSubmit={(event) => void submit(event)}
+      onInput={(event) => {
+        if ((event.target as HTMLElement).getAttribute("name")) setDirty(true);
+      }}
+      className="mx-auto flex max-w-xl flex-col gap-4 px-8 py-10"
+    >
       <div>
-        <button type="button" onClick={() => onDone()} className="mb-4 text-[13px] text-fg-muted hover:text-fg">
+        <button
+          type="button"
+          onClick={() => void guardedLeave(() => onDone())}
+          className="mb-4 text-[13px] text-fg-muted hover:text-fg"
+        >
           ← Retour
         </button>
         <h1 className="text-[24px] font-medium tracking-tight">
@@ -90,7 +93,12 @@ function ClientForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className={labelClass}>
           Prénom *
-          <input name="firstName" required defaultValue={client?.firstName} className={fieldClass} />
+          <input
+            name="firstName"
+            required
+            defaultValue={client?.firstName}
+            className={fieldClass}
+          />
         </label>
         <label className={labelClass}>
           Nom *
@@ -106,6 +114,7 @@ function ClientForm({
           id="client-birth-date"
           name="birthDate"
           defaultValue={client?.birthDate ?? null}
+          onChange={() => setDirty(true)}
           placeholder="Choisir une date de naissance"
         />
       </div>
@@ -133,7 +142,11 @@ function ClientForm({
         <button type="submit" disabled={saving} className={btnPrimary}>
           {saving ? "Enregistrement…" : "Enregistrer"}
         </button>
-        <button type="button" onClick={() => onDone()} className={btnGhost}>
+        <button
+          type="button"
+          onClick={() => void guardedLeave(() => onDone())}
+          className={btnGhost}
+        >
           Annuler
         </button>
       </div>
@@ -161,7 +174,11 @@ function ClientDetail({
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-5 px-8 py-10">
-      <button type="button" onClick={onBack} className="self-start text-[13px] text-fg-muted hover:text-fg">
+      <button
+        type="button"
+        onClick={onBack}
+        className="self-start text-[13px] text-fg-muted hover:text-fg"
+      >
         ← Clients
       </button>
       <div className="flex items-start gap-4">

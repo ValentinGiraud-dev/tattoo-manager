@@ -1,4 +1,5 @@
 import { useUIStore, type AppPage } from "../stores/ui-store";
+import { useGuardedLeave } from "./unsaved-changes";
 
 const NAV: { id: AppPage; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
@@ -9,6 +10,7 @@ const NAV: { id: AppPage; label: string }[] = [
 
 export function Sidebar() {
   const { page, setPage } = useUIStore();
+  const guardedLeave = useGuardedLeave();
 
   return (
     <aside className="flex w-[210px] shrink-0 flex-col border-r border-line bg-surface">
@@ -17,7 +19,7 @@ export function Sidebar() {
         <p className="mt-0.5 text-[11px] text-fg-faint">Atelier</p>
       </div>
       <nav className="flex flex-col gap-0.5 p-3" aria-label="Navigation principale">
-        <span className="px-2 pb-1 pt-2 text-[11px] font-medium tracking-[0.06em] text-fg-faint uppercase">
+        <span className="px-2 pt-2 pb-1 text-[11px] font-medium tracking-[0.06em] text-fg-faint uppercase">
           Menu
         </span>
         {NAV.map((item) => {
@@ -26,7 +28,9 @@ export function Sidebar() {
             <button
               key={item.id}
               type="button"
-              onClick={() => setPage(item.id)}
+              onClick={() => {
+                if (item.id !== page) void guardedLeave(() => setPage(item.id));
+              }}
               aria-current={active ? "page" : undefined}
               className={[
                 "rounded-sm px-2 py-1.5 text-left text-[13px] transition-colors",

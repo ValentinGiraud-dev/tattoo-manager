@@ -3,6 +3,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local};
+use sqlx::SqlitePool;
 
 const KEEP: usize = 10;
 
@@ -43,6 +44,43 @@ pub fn copy_if_changed(
     fs::copy(source, &destination)?;
     prune_backups(backups, prefix, extension, KEEP)?;
     Ok(Some(destination))
+}
+
+/// Copie cohérente de la base ouverte, faite par SQLite lui-même (`VACUUM INTO`).
+///
+/// Une copie de fichier ne suffit pas : en mode WAL, les dernières écritures peuvent
+/// être dans `database.sqlite-wal`. Si le contenu est identique à la dernière copie,
+/// aucune nouvelle copie n'est gardée.
+pub async fn snapshot_database(
+    pool: &SqlitePool,
+    backups: &Path,
+    version: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let pending = backups.join(".database-pending.sqlite");
+    if pending.exists() {
+        fs::remove_file(&pending)?;
+    }
+
+    let target = pending
+        .to_str()
+        .ok_or("chemin de sauvegarde illisible")?
+        .to_string();
+    sqlx::query("VACUUM INTO ?")
+        .bind(target)
+        .execute(pool)
+        .await?;
+
+    if let Some(latest) = latest_backup(backups, "database", "sqlite")? {
+        if same_contents(&pending, &latest)? {
+            fs::remove_file(&pending)?;
+            return Ok(latest);
+        }
+    }
+
+    let destination = unique_destination(backups, "database", &local_stamp(), version, "sqlite");
+    fs::rename(&pending, &destination)?;
+    prune_backups(backups, "database", "sqlite", KEEP)?;
+    Ok(destination)
 }
 
 pub fn latest_backup(
@@ -149,8 +187,7 @@ fn read_chunk(file: &mut File, buf: &mut [u8]) -> io::Result<usize> {
 mod tests {
     use super::*;
     use chrono::TimeZone;
-    use sqlx::sqlite::SqliteConnectOptions;
-    use sqlx::SqlitePool;
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
     use std::time::SystemTime;
 
     fn temp_dir() -> PathBuf {
@@ -281,6 +318,65 @@ mod tests {
             backup.close().await;
         });
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn snapshot_includes_writes_still_in_the_wal_and_skips_an_unchanged_base() {
+        let dir = temp_dir();
+        let backups = dir.join("backups");
+        fs::create_dir(&backups).unwrap();
+        let database = dir.join("database.sqlite");
+
+        tauri::async_runtime::block_on(async {
+            let options = SqliteConnectOptions::new()
+                .filename(&database)
+                .create_if_missing(true)
+                .journal_mode(SqliteJournalMode::Wal);
+            let pool = SqlitePool::connect_with(options).await.unwrap();
+            sqlx::query("PRAGMA wal_autocheckpoint = 0")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("CREATE TABLE example (name TEXT NOT NULL)")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO example (name) VALUES ('Ada')")
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            let first = snapshot_database(&pool, &backups, "0.1.0").await.unwrap();
+            let second = snapshot_database(&pool, &backups, "0.1.0").await.unwrap();
+            assert_eq!(first, second);
+            assert!(!backups.join(".database-pending.sqlite").exists());
+
+            sqlx::query("INSERT INTO example (name) VALUES ('Grace')")
+                .execute(&pool)
+                .await
+                .unwrap();
+            let third = snapshot_database(&pool, &backups, "0.1.0").await.unwrap();
+            assert_ne!(first, third);
+            pool.close().await;
+
+            let copy = SqlitePool::connect_with(
+                SqliteConnectOptions::new().filename(&third).read_only(true),
+            )
+            .await
+            .unwrap();
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM example")
+                .fetch_one(&copy)
+                .await
+                .unwrap();
+            assert_eq!(count, 2);
+            copy.close().await;
+        });
+
+        assert_eq!(
+            backup_files(&backups, "database", "sqlite").unwrap().len(),
+            2
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }

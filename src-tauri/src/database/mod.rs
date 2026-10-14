@@ -18,16 +18,11 @@ pub fn init(paths: &AppPaths, version: &str) -> Result<SqlitePool, Box<dyn std::
             .await?;
 
         if existed {
-            backup::copy_if_changed(
-                &paths.database,
-                &paths.backups,
-                "database",
-                "sqlite",
-                version,
-            )
-            .map_err(|err| -> Box<dyn std::error::Error> {
-                backup::backup_refused_message(&err).into()
-            })?;
+            backup::snapshot_database(&pool, &paths.backups, version)
+                .await
+                .map_err(|err| -> Box<dyn std::error::Error> {
+                    backup::backup_refused_message(&*err).into()
+                })?;
         }
 
         sqlx::migrate!("./migrations").run(&pool).await.map_err(

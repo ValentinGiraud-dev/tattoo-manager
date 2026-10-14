@@ -14,14 +14,14 @@ Trois niveaux. Choisis selon l'effet de l'action, pas selon l'écran.
 
 | Niveau | Quand | Ce qu'on montre |
 | --- | --- | --- |
-| **Aucune confirmation** | Action réversible sans effet sur la traçabilité : créer ou modifier une fiche client, rechercher, naviguer, ouvrir un flacon (date modifiable) | Toast de succès |
+| **Aucune confirmation** | Action réversible sans effet sur la traçabilité : créer ou modifier une fiche client, rechercher, naviguer, enregistrer l'ouverture d'une pièce (date modifiable) | Toast de succès |
 | **Dialogue de confirmation** | Action qui écrit dans la traçabilité ou le stock, ou qu'on ne peut défaire qu'avec une autre action tracée | Dialogue modal avec récapitulatif |
 | **Confirmation renforcée** | Action qui remplace ou efface des données en masse | Dialogue + saisie d'un mot ou du nom pour activer le bouton |
 
 **Dialogue obligatoire pour :**
 
 - lier un produit à une séance (le lien est permanent et consomme du stock) ;
-- sortir un flacon du stock (terminé, perdu, périmé, renvoyé) ;
+- sortir une pièce du stock (terminée, perdue, périmée, renvoyée) ;
 - enregistrer un mouvement de stock manuel (perte, ajustement, retour) ;
 - annuler un mouvement ou un lien ;
 - passer une séance à « Annulée » ou « Reportée » ;
@@ -33,29 +33,36 @@ Trois niveaux. Choisis selon l'effet de l'action, pas selon l'écran.
 
 **Contenu d'un dialogue :**
 
-- Titre = question avec le verbe : « Sortir ce flacon du stock ? ».
-- Corps = ce qui va se passer, avec les vrais noms : « Encre noire · lot ABC123 · flacon ouvert le 8 oct. Il ne sera plus proposé dans les séances. »
+- Titre = question avec le verbe : « Déclarer cette pièce perdue ? ».
+- Récapitulatif (`details`) avec les vrais noms : « Encre noire · lot ABC123 », « Pièce 1 · ouverte le 8 octobre 2026 ». Corps (`body`) = ce qui va se passer : « La pièce sort du stock et ne sera plus proposée dans les séances. »
 - Conséquence irréversible dite clairement : « Ce lien restera dans l'historique de traçabilité. »
 - Champ motif quand le métier l'exige (ajustement, annulation).
-- Bouton principal = le verbe exact (« Sortir le flacon », « Lier à la séance »), jamais « OK » ni « Oui ». Style `danger` si l'action retire ou annule.
-- Bouton secondaire « Annuler », focus par défaut sur lui pour les actions danger.
+- Bouton principal = le verbe exact (« Déclarer perdue », « Lier à la séance »), jamais « OK » ni « Oui ». Style `danger` si l'action retire ou annule.
+- Avertissement métier (`warning`) pour un risque à assumer : lot périmé → bouton « Lier quand même ».
+- Bouton secondaire « Annuler » par défaut, focus sur lui pour les actions danger. Si l'action elle-même s'appelle « Annuler… », nommer le bouton secondaire « Retour » ou « Garder ».
 - `Échap` et clic sur le fond = annuler. `Entrée` = valider seulement si le focus est sur le bouton principal.
 
 ```tsx
 // ❌ bloque la webview, texte générique, aucune info
 if (window.confirm("Êtes-vous sûr ?")) await exitUnit(id, "LOSS");
 
-// ✅ composant maison, récapitulatif, verbe exact
+// ✅ useConfirm, récapitulatif, verbe exact
+const confirm = useConfirm(); // src/components/use-confirm.ts
 const ok = await confirm({
-  title: "Sortir ce flacon du stock ?",
-  body: `${lot.name} · lot ${lot.lotNumber} · ${openedLabel}`,
-  confirmLabel: "Sortir le flacon",
+  title: "Déclarer cette pièce perdue ?",
+  details: [`${lot.name} · lot ${lot.lotNumber}`, `Pièce ${position} · ${state}`],
+  body: "La pièce sort du stock et ne sera plus proposée dans les séances.",
+  confirmLabel: "Déclarer perdue",
+  cancelLabel: "Retour",
   tone: "danger",
 });
-if (ok) await exitUnit(unit.id, "LOSS");
+if (!ok) return; // ok vaut { reason } si un champ motif a été demandé
+await exitUnit(unit.id, "LOSS");
 ```
 
-Ne jamais utiliser `window.confirm`, `window.alert` ou `window.prompt`. Utiliser un composant `ConfirmDialog` (avec un hook `useConfirm`) dans `src/components/`. Le créer s'il n'existe pas encore.
+Ne jamais utiliser `window.confirm`, `window.alert` ou `window.prompt` (ESLint les refuse). Utiliser `useConfirm()` (`src/components/use-confirm.ts`) ; le dialogue est rendu par `ConfirmProvider` (`src/components/confirm-dialog.tsx`), monté dans `App.tsx`.
+
+**Formulaires non enregistrés :** dans un formulaire, `useUnsavedChanges(dirty)` ; sur « Retour » / « Annuler », `guardedLeave(() => onDone())` avec `useGuardedLeave()` (`src/components/unsaved-changes.ts`). La barre latérale passe déjà par ce garde.
 
 ## 2. États d'un écran
 
@@ -119,7 +126,7 @@ Couleur + icône + texte. Jamais la couleur seule. Tokens : `success`, `warning`
 ## 9. Textes
 
 - Français, tutoiement, phrases courtes. Skill `writing-guidelines`.
-- Libellés métier stables : « séance », « lot », « flacon », « usage unique ». Ne pas alterner avec « pièce », « session » ou « produit » à l'écran.
+- Libellés métier stables : « séance », « lot », « pièce » (unité d'un lot à usage multiple, par exemple un flacon d'encre), « usage unique », « usage multiple ». Ne pas alterner avec « session » ou « unité » à l'écran.
 - Dates longues : « 14 oct. 2026 ». Dates relatives pour les échéances : « expire dans 12 jours ».
 - Message d'erreur = ce qui s'est passé + quoi faire : « Ce flacon est déjà sorti du stock. Annule la sortie pour le réutiliser. »
 

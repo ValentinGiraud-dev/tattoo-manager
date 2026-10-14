@@ -118,3 +118,17 @@
     cursor: not-allowed;
   }
 }
+
+/* Dialogue de confirmation (src/components/confirm-dialog.tsx) */
+@keyframes confirm-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes confirm-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}

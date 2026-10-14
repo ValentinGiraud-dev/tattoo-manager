@@ -13,8 +13,8 @@ Application desktop macOS offline-first pour une tatoueuse. Nom produit : Tracin
 - Frontend : React 19, TypeScript strict, Vite, Tailwind 4. Composants maison dans `src/components/`.
 - État : Zustand. Un store par domaine (`clients-store`, `sessions-store`, `products-store`) plus `ui-store` et `settings-store`.
 - Backend local : Rust. Données : SQLite + SQLx 0.8, migrations dans `src-tauri/migrations/`.
-- Outils en place : pnpm, Cargo, rustfmt, clippy, tests Rust.
-- Outils prévus, pas encore installés : ESLint, Prettier, Vitest, Playwright, CI GitHub Actions. Ne pas supposer qu'ils existent.
+- Outils en place : pnpm, Cargo, rustfmt, clippy, tests Rust, ESLint (`eslint.config.js`), Prettier (`.prettierrc.json`), CI GitHub Actions (`.github/workflows/ci.yml`).
+- Outils prévus, pas encore installés : Vitest, Playwright. Ne pas supposer qu'ils existent.
 
 Pas de Next.js, serveur Node, API REST, PostgreSQL, Docker ni cloud en V1. Seul accès réseau autorisé : l'updater vers les releases GitHub.
 

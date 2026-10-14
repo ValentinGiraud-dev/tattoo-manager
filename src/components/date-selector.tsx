@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"] as const;
 
@@ -45,11 +38,7 @@ function parseIso(value: string | null | undefined): Date | null {
   const month = Number(match[2]);
   const day = Number(match[3]);
   const date = new Date(year, month - 1, day);
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day
-  ) {
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
     return null;
   }
   return date;
@@ -218,7 +207,7 @@ export function DateSelector({
           aria-expanded={open}
           onClick={() => setOpen((prev) => !prev)}
           onKeyDown={onTriggerKeyDown}
-          className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md border border-line-strong bg-bg px-3 py-2 text-left text-[14px] text-fg outline-none transition-colors hover:border-accent focus-visible:border-accent disabled:opacity-45 active:scale-[0.995]"
+          className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md border border-line-strong bg-bg px-3 py-2 text-left text-[14px] text-fg transition-colors outline-none hover:border-accent focus-visible:border-accent active:scale-[0.995] disabled:opacity-45"
         >
           <span className={`truncate ${selected ? "text-fg" : "text-fg-faint"}`}>
             {selected ? formatDisplay(selected) : placeholder}
@@ -231,7 +220,15 @@ export function DateSelector({
             aria-hidden="true"
             className="shrink-0 text-fg-faint"
           >
-            <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" />
+            <rect
+              x="2"
+              y="3"
+              width="12"
+              height="11"
+              rx="2"
+              stroke="currentColor"
+              strokeWidth="1.4"
+            />
             <path d="M2 6.5h12" stroke="currentColor" strokeWidth="1.4" />
             <path
               d="M5 1.5v3M11 1.5v3"

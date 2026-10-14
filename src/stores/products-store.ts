@@ -150,8 +150,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
     }
   },
   get: (id) => invoke<LotSummary>("get_lot", { id }),
-  find: (name, lotNumber) =>
-    invoke<LotSummary | null>("find_lot", { name, lotNumber }),
+  find: (name, lotNumber) => invoke<LotSummary | null>("find_lot", { name, lotNumber }),
   create: async (input) => {
     const lot = await invoke<LotSummary>("create_lot", { input });
     await get().load();
@@ -164,8 +163,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
   },
   listUnits: (lotId) => invoke<UnitView[]>("list_lot_units", { lotId }),
   openUnit: (unitId, openedAt) => invoke<UnitView>("open_unit", { unitId, openedAt }),
-  exitUnit: (unitId, movementType) =>
-    invoke<UnitView>("exit_unit", { unitId, movementType }),
+  exitUnit: (unitId, movementType) => invoke<UnitView>("exit_unit", { unitId, movementType }),
   recordMovement: async (input) => {
     const lot = await invoke<LotSummary>("record_lot_movement", { input });
     await get().load();

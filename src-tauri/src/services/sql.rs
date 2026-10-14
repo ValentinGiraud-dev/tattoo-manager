@@ -27,3 +27,13 @@ pub(crate) fn like_pattern(search: Option<String>) -> Option<String> {
         format!("%{escaped}%")
     })
 }
+
+/// Message affiché quand SQLite échoue. Le détail technique reste dans le journal :
+/// il peut contenir des noms de tables, jamais montrés à l'utilisatrice.
+pub(crate) const DATABASE_MESSAGE: &str =
+    "Erreur d'accès aux données. Réessaie, puis redémarre l'app si le problème continue.";
+
+/// Journalise une erreur SQLite sans donnée client : sqlx ne recopie pas les valeurs liées.
+pub(crate) fn log_database_error(error: &sqlx::Error) {
+    eprintln!("erreur SQLite : {error}");
+}

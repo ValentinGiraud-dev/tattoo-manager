@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+use super::sql::{clean, is_iso_date, like_pattern, NOW};
+
 use crate::models::SessionStatus;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -34,7 +36,8 @@ pub struct SessionListItem {
 pub enum SessionError {
     Invalid(&'static str),
     NotFound,
-    Database(sqlx::Error),
+    /// Erreur SQLite, déjà journalisée. Le détail ne remonte pas à l'écran.
+    Database,
 }
 
 impl std::fmt::Display for SessionError {
@@ -42,33 +45,16 @@ impl std::fmt::Display for SessionError {
         match self {
             Self::Invalid(message) => write!(f, "{message}"),
             Self::NotFound => write!(f, "Séance introuvable"),
-            Self::Database(error) => write!(f, "{error}"),
+            Self::Database => write!(f, "{}", super::sql::DATABASE_MESSAGE),
         }
     }
 }
 
 impl From<sqlx::Error> for SessionError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        super::sql::log_database_error(&error);
+        Self::Database
     }
-}
-
-fn clean(value: Option<String>) -> Option<String> {
-    value
-        .map(|text| text.trim().to_string())
-        .filter(|text| !text.is_empty())
-}
-
-fn is_iso_date(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    if bytes.len() != 10 {
-        return false;
-    }
-    bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes[..4].iter().all(u8::is_ascii_digit)
-        && bytes[5..7].iter().all(u8::is_ascii_digit)
-        && bytes[8..].iter().all(u8::is_ascii_digit)
 }
 
 async fn ensure_client_exists(pool: &SqlitePool, client_id: &str) -> Result<(), SessionError> {
@@ -111,8 +97,6 @@ async fn normalize(pool: &SqlitePool, input: SessionInput) -> Result<SessionInpu
     })
 }
 
-const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%S', 'now')";
-
 const LIST_SELECT: &str = "SELECT
     s.id,
     s.client_id,
@@ -132,13 +116,7 @@ pub async fn list_sessions(
     pool: &SqlitePool,
     search: Option<String>,
 ) -> Result<Vec<SessionListItem>, SessionError> {
-    let pattern = clean(search).map(|text| {
-        let escaped = text
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
-        format!("%{escaped}%")
-    });
+    let pattern = like_pattern(search);
 
     let sql = format!(
         "{LIST_SELECT}

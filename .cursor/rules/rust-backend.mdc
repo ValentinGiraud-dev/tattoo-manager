@@ -23,7 +23,7 @@ alwaysApply: false
 ## Erreurs
 
 - Pas de `unwrap()` ni `expect()` hors tests, sauf invariant prouvé et commenté.
-- Une erreur SQL n'est jamais montrée telle quelle : la journaliser (`eprintln!` en attendant un vrai logger) et renvoyer un message générique (« Erreur d'accès aux données. Réessaie ou redémarre l'app. »).
+- Une erreur SQL n'est jamais montrée telle quelle. Modèle en place : `From<sqlx::Error>` appelle `sql::log_database_error` puis renvoie la variante `Database` sans détail, affichée avec `sql::DATABASE_MESSAGE`.
 - Traduire les violations connues (index unique, contrainte `CHECK`) en message métier.
 - Le démarrage ne doit jamais échouer en silence : dialogue d'erreur + compte rendu, comme dans `lib.rs`.
 
@@ -45,8 +45,8 @@ alwaysApply: false
 
 ## Sauvegardes
 
-- Une copie de la base est faite avant les migrations (`backup.rs`). Ne pas retirer ce comportement.
-- Une sauvegarde de base ouverte se fait avec `VACUUM INTO 'chemin'`, pas avec une copie de fichier (mode WAL).
+- Une copie de la base est faite avant les migrations (`backup::snapshot_database`, appelée dans `database::init`). Ne pas retirer ce comportement.
+- Une sauvegarde de base ouverte se fait avec `VACUUM INTO`, pas avec une copie de fichier (mode WAL). `snapshot_database` le fait déjà et ne garde pas de copie si rien n'a changé.
 - On garde un nombre borné de copies (`KEEP`).
 
 ## Tests

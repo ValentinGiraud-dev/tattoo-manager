@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { useConfirm } from "../../components/use-confirm";
 import { DateSelector } from "../../components/date-selector";
+import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
 import { useClientsStore } from "../../stores/clients-store";
 import {
   useProductsStore,
@@ -26,7 +28,7 @@ const labelClass = "block text-[12.5px] font-medium text-fg-muted";
 const btnPrimary =
   "inline-flex items-center rounded-pill bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-fg transition-[filter] hover:brightness-110 disabled:opacity-45";
 const btnGhost =
-  "inline-flex items-center rounded-pill border border-line-strong px-3.5 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg";
+  "inline-flex items-center rounded-pill border border-line-strong px-3.5 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg disabled:opacity-45";
 
 const STATUS_LABELS: Record<SessionStatus, string> = {
   PLANNED: "Planifiée",
@@ -84,7 +86,11 @@ function SessionForm({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [date, setDate] = useState<string | null>(session?.date ?? null);
+  const [dirty, setDirty] = useState(false);
+  const confirm = useConfirm();
+  const guardedLeave = useGuardedLeave();
   const currentYear = new Date().getFullYear();
+  useUnsavedChanges(dirty);
 
   useEffect(() => {
     void loadClients("");
@@ -111,10 +117,33 @@ function SessionForm({
       setError("Le client est obligatoire");
       return;
     }
+    if ((status === "CANCELLED" || status === "RESCHEDULED") && status !== session?.status) {
+      const client = clients.find((item) => item.id === input.clientId);
+      const ok = await confirm({
+        title:
+          status === "CANCELLED"
+            ? "Marquer cette séance comme annulée ?"
+            : "Marquer cette séance comme reportée ?",
+        details: [
+          client ? `${client.firstName} ${client.lastName}` : "Client",
+          formatIsoDate(date),
+          ...(input.bodyArea ? [input.bodyArea] : []),
+        ],
+        body:
+          status === "CANCELLED"
+            ? "La séance reste dans l'historique avec le statut « Annulée »."
+            : "La séance reste dans l'historique avec le statut « Reportée ». Crée une nouvelle séance pour la nouvelle date.",
+        confirmLabel: status === "CANCELLED" ? "Annuler la séance" : "Reporter la séance",
+        cancelLabel: "Retour",
+        tone: status === "CANCELLED" ? "danger" : "default",
+      });
+      if (!ok) return;
+    }
     setSaving(true);
     setError(null);
     try {
       const saved = session ? await update(session.id, input) : await create(input);
+      setDirty(false);
       onDone(saved);
     } catch (submitError) {
       setError(String(submitError));
@@ -126,12 +155,15 @@ function SessionForm({
   return (
     <form
       onSubmit={(event) => void submit(event)}
+      onInput={(event) => {
+        if ((event.target as HTMLElement).getAttribute("name")) setDirty(true);
+      }}
       className="mx-auto flex max-w-xl flex-col gap-4 px-8 py-10"
     >
       <div>
         <button
           type="button"
-          onClick={() => onDone()}
+          onClick={() => void guardedLeave(() => onDone())}
           className="mb-4 text-[13px] text-fg-muted hover:text-fg"
         >
           ← Retour
@@ -167,7 +199,10 @@ function SessionForm({
         <DateSelector
           id="session-date"
           value={date}
-          onChange={setDate}
+          onChange={(value) => {
+            setDate(value);
+            setDirty(true);
+          }}
           placeholder="Choisir la date de séance"
           minYear={currentYear - 10}
           maxYear={currentYear + 2}
@@ -212,7 +247,12 @@ function SessionForm({
 
       <label className={labelClass}>
         Notes
-        <textarea name="notes" rows={3} defaultValue={session?.notes ?? ""} className={fieldClass} />
+        <textarea
+          name="notes"
+          rows={3}
+          defaultValue={session?.notes ?? ""}
+          className={fieldClass}
+        />
       </label>
 
       {error && <p className="text-[13px] text-danger">{error}</p>}
@@ -221,7 +261,11 @@ function SessionForm({
         <button type="submit" disabled={saving} className={btnPrimary}>
           {saving ? "Enregistrement…" : "Enregistrer"}
         </button>
-        <button type="button" onClick={() => onDone()} className={btnGhost}>
+        <button
+          type="button"
+          onClick={() => void guardedLeave(() => onDone())}
+          className={btnGhost}
+        >
           Annuler
         </button>
       </div>
@@ -229,8 +273,10 @@ function SessionForm({
   );
 }
 
-function SessionProducts({ sessionId }: { sessionId: string }) {
+function SessionProducts({ session }: { session: SessionListItem }) {
+  const sessionId = session.id;
   const { listSessionUsages, listLinkable, linkToSession } = useProductsStore();
+  const confirm = useConfirm();
   const [linked, setLinked] = useState<SessionUsageItem[]>([]);
   const [linkable, setLinkable] = useState<LinkableItem[]>([]);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
@@ -294,7 +340,29 @@ function SessionProducts({ sessionId }: { sessionId: string }) {
         setError("La quantité consommée doit être un nombre positif");
         return;
       }
+      if (quantity > item.stock) {
+        setError(`Stock insuffisant : ${item.stock} restant${item.stock > 1 ? "s" : ""}`);
+        return;
+      }
     }
+    const ok = await confirm({
+      title: "Lier ce produit à la séance ?",
+      details: [
+        `${item.name} · lot ${item.lotNumber}`,
+        item.singleUse
+          ? `Usage unique · ${quantity} retiré${quantity && quantity > 1 ? "s" : ""} du stock (${item.stock} → ${item.stock - (quantity ?? 0)})`
+          : `Usage multiple · pièce ${item.openedAt ? `ouverte le ${formatIsoDate(item.openedAt)}` : "scellée"}`,
+        `Séance : ${clientName(session)} · ${formatIsoDate(session.date)}`,
+      ],
+      body: "Le lien restera dans l'historique de traçabilité : il ne pourra pas être supprimé.",
+      warning: item.expired
+        ? `Ce lot est périmé depuis le ${formatIsoDate(item.expirationDate)}.`
+        : undefined,
+      confirmLabel: item.expired ? "Lier quand même" : "Lier à la séance",
+      cancelLabel: "Retour",
+      tone: item.expired ? "danger" : "default",
+    });
+    if (!ok) return;
     setLinking(true);
     setError(null);
     try {
@@ -322,11 +390,7 @@ function SessionProducts({ sessionId }: { sessionId: string }) {
             Traçabilité : les liens ne se suppriment pas.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setPickerOpen((open) => !open)}
-          className={btnGhost}
-        >
+        <button type="button" onClick={() => setPickerOpen((open) => !open)} className={btnGhost}>
           {pickerOpen ? "Fermer" : "Lier un produit"}
         </button>
       </div>
@@ -465,9 +529,7 @@ function SessionDetail({
           <div className="mb-2">
             <StatusBadge status={session.status} />
           </div>
-          <h1 className="text-[24px] font-medium tracking-tight">
-            {session.bodyArea ?? "Séance"}
-          </h1>
+          <h1 className="text-[24px] font-medium tracking-tight">{session.bodyArea ?? "Séance"}</h1>
           <p className="mt-1 text-[13px] text-fg-muted">
             {clientName(session)} · {formatIsoDate(session.date)}
           </p>
@@ -484,7 +546,7 @@ function SessionDetail({
           </div>
         ))}
       </dl>
-      <SessionProducts sessionId={session.id} />
+      <SessionProducts session={session} />
     </div>
   );
 }

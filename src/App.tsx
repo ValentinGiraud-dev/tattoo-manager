@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { AppShell } from "./components/app-shell";
+import { ConfirmProvider } from "./components/confirm-dialog";
 import { UpdateNotice } from "./components/update-notice";
 import ClientsPage from "./features/clients/clients-page";
 import DashboardPage from "./features/dashboard/dashboard-page";
@@ -17,18 +18,20 @@ function App() {
   }, [load]);
 
   return (
-    <AppShell>
-      <UpdateNotice />
-      {error && (
-        <div className="border-b border-line bg-surface px-8 py-3 text-[13px] text-danger">
-          {error}
-        </div>
-      )}
-      {page === "dashboard" && <DashboardPage />}
-      {page === "clients" && <ClientsPage />}
-      {page === "sessions" && <SessionsPage />}
-      {page === "products" && <ProductsPage />}
-    </AppShell>
+    <ConfirmProvider>
+      <AppShell>
+        <UpdateNotice />
+        {error && (
+          <div className="border-b border-line bg-surface px-8 py-3 text-[13px] text-danger">
+            {error}
+          </div>
+        )}
+        {page === "dashboard" && <DashboardPage />}
+        {page === "clients" && <ClientsPage />}
+        {page === "sessions" && <SessionsPage />}
+        {page === "products" && <ProductsPage />}
+      </AppShell>
+    </ConfirmProvider>
   );
 }
 

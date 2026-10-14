@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use sqlx::SqlitePool;
 
+use super::sql::{clean, like_pattern, NOW};
+
 use crate::models::Client;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -18,7 +20,8 @@ pub struct ClientInput {
 pub enum ClientError {
     Invalid(&'static str),
     NotFound,
-    Database(sqlx::Error),
+    /// Erreur SQLite, déjà journalisée. Le détail ne remonte pas à l'écran.
+    Database,
 }
 
 impl std::fmt::Display for ClientError {
@@ -26,21 +29,16 @@ impl std::fmt::Display for ClientError {
         match self {
             Self::Invalid(message) => write!(f, "{message}"),
             Self::NotFound => write!(f, "Client introuvable"),
-            Self::Database(error) => write!(f, "{error}"),
+            Self::Database => write!(f, "{}", super::sql::DATABASE_MESSAGE),
         }
     }
 }
 
 impl From<sqlx::Error> for ClientError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        super::sql::log_database_error(&error);
+        Self::Database
     }
-}
-
-fn clean(value: Option<String>) -> Option<String> {
-    value
-        .map(|text| text.trim().to_string())
-        .filter(|text| !text.is_empty())
 }
 
 fn normalize(input: ClientInput) -> Result<ClientInput, ClientError> {
@@ -62,20 +60,12 @@ fn normalize(input: ClientInput) -> Result<ClientInput, ClientError> {
     })
 }
 
-const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%S', 'now')";
-
 /// Liste les clients ; `search` filtre sur nom, prénom, email et téléphone.
 pub async fn list_clients(
     pool: &SqlitePool,
     search: Option<String>,
 ) -> Result<Vec<Client>, ClientError> {
-    let pattern = clean(search).map(|text| {
-        let escaped = text
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
-        format!("%{escaped}%")
-    });
+    let pattern = like_pattern(search);
 
     let clients = sqlx::query_as::<_, Client>(
         "SELECT * FROM clients

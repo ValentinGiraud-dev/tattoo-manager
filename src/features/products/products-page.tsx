@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { useConfirm } from "../../components/use-confirm";
 import { DateSelector } from "../../components/date-selector";
+import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
 import {
   useProductsStore,
   type LotSessionItem,
@@ -9,9 +11,7 @@ import {
 } from "../../stores/products-store";
 
 type View =
-  | { kind: "list" }
-  | { kind: "form"; lot?: LotSummary }
-  | { kind: "detail"; lot: LotSummary };
+  { kind: "list" } | { kind: "form"; lot?: LotSummary } | { kind: "detail"; lot: LotSummary };
 
 const emptyToNull = (value: string) => (value.trim() === "" ? null : value.trim());
 
@@ -21,7 +21,7 @@ const labelClass = "block text-[12.5px] font-medium text-fg-muted";
 const btnPrimary =
   "inline-flex items-center rounded-pill bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-fg transition-[filter] hover:brightness-110 disabled:opacity-45";
 const btnGhost =
-  "inline-flex items-center rounded-pill border border-line-strong px-3.5 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg";
+  "inline-flex items-center rounded-pill border border-line-strong px-3.5 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg disabled:opacity-45";
 
 const STATUS_LABELS: Record<string, string> = {
   PLANNED: "Planifiée",
@@ -37,6 +37,36 @@ const MOVEMENT_LABELS: Record<string, string> = {
   EXPIRATION: "Péremption",
   RETURN: "Retour",
   ADJUSTMENT: "Ajustement",
+};
+
+const MOVEMENT_ARTICLE: Record<string, string> = {
+  LOSS: "cette perte",
+  EXPIRATION: "cette péremption",
+  RETURN: "ce retour",
+  ADJUSTMENT: "cet ajustement",
+};
+
+const EXIT_ACTIONS: Record<string, { title: string; label: string; body: string }> = {
+  CONSUMPTION: {
+    title: "Marquer cette pièce comme terminée ?",
+    label: "Marquer terminée",
+    body: "La pièce sort du stock et ne sera plus proposée dans les séances.",
+  },
+  LOSS: {
+    title: "Déclarer cette pièce perdue ?",
+    label: "Déclarer perdue",
+    body: "La pièce sort du stock et ne sera plus proposée dans les séances.",
+  },
+  EXPIRATION: {
+    title: "Sortir cette pièce comme périmée ?",
+    label: "Sortir comme périmée",
+    body: "La pièce sort du stock et ne sera plus proposée dans les séances.",
+  },
+  RETURN: {
+    title: "Renvoyer cette pièce ?",
+    label: "Renvoyer la pièce",
+    body: "La pièce sort du stock (retour fournisseur) et ne sera plus proposée dans les séances.",
+  },
 };
 
 const EXIT_LABELS: Record<string, string> = {
@@ -95,13 +125,7 @@ function stockLabel(lot: LotSummary): string {
   return `${lot.stock} en stock · ${sealed} · ${opened}`;
 }
 
-function LotForm({
-  lot,
-  onDone,
-}: {
-  lot?: LotSummary;
-  onDone: (saved?: LotSummary) => void;
-}) {
+function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummary) => void }) {
   const { create, update, find } = useProductsStore();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -109,9 +133,7 @@ function LotForm({
   const [lotNumber, setLotNumber] = useState(lot?.lotNumber ?? "");
   const [existing, setExisting] = useState<LotSummary | null>(null);
   const [creationDate, setCreationDate] = useState<string | null>(lot?.creationDate ?? null);
-  const [expirationDate, setExpirationDate] = useState<string | null>(
-    lot?.expirationDate ?? null,
-  );
+  const [expirationDate, setExpirationDate] = useState<string | null>(lot?.expirationDate ?? null);
   const [singleUse, setSingleUse] = useState(lot?.singleUse ?? true);
   const [afterOpeningMonths, setAfterOpeningMonths] = useState(
     lot?.afterOpeningMonths?.toString() ?? "",
@@ -120,6 +142,19 @@ function LotForm({
   const [quantity, setQuantity] = useState("1");
   const currentYear = new Date().getFullYear();
   const locked = existing != null;
+  const [submitted, setSubmitted] = useState(false);
+  const guardedLeave = useGuardedLeave();
+  const dirty =
+    !submitted &&
+    (name !== (lot?.name ?? "") ||
+      lotNumber !== (lot?.lotNumber ?? "") ||
+      creationDate !== (lot?.creationDate ?? null) ||
+      expirationDate !== (lot?.expirationDate ?? null) ||
+      singleUse !== (lot?.singleUse ?? true) ||
+      afterOpeningMonths !== (lot?.afterOpeningMonths?.toString() ?? "") ||
+      productUrl !== (lot?.productUrl ?? "") ||
+      (!lot && quantity !== "1"));
+  useUnsavedChanges(dirty);
 
   async function lookup() {
     if (lot) return;
@@ -159,6 +194,7 @@ function LotForm({
           afterOpeningMonths: singleUse ? null : months,
           productUrl: emptyToNull(productUrl),
         });
+        setSubmitted(true);
         onDone(saved);
         return;
       }
@@ -178,6 +214,7 @@ function LotForm({
         productUrl: emptyToNull(productUrl),
         quantity: qty,
       });
+      setSubmitted(true);
       onDone(saved);
     } catch (submitError) {
       setError(String(submitError));
@@ -194,7 +231,7 @@ function LotForm({
       <div>
         <button
           type="button"
-          onClick={() => onDone()}
+          onClick={() => void guardedLeave(() => onDone())}
           className="mb-4 text-[13px] text-fg-muted hover:text-fg"
         >
           ← Retour
@@ -352,7 +389,11 @@ function LotForm({
         <button type="submit" disabled={saving} className={btnPrimary}>
           {saving ? "Enregistrement…" : "Enregistrer"}
         </button>
-        <button type="button" onClick={() => onDone()} className={btnGhost}>
+        <button
+          type="button"
+          onClick={() => void guardedLeave(() => onDone())}
+          className={btnGhost}
+        >
           Annuler
         </button>
       </div>
@@ -360,14 +401,9 @@ function LotForm({
   );
 }
 
-function MovementForm({
-  lotId,
-  onSaved,
-}: {
-  lotId: string;
-  onSaved: (lot: LotSummary) => void;
-}) {
+function MovementForm({ lot, onSaved }: { lot: LotSummary; onSaved: (lot: LotSummary) => void }) {
   const recordMovement = useProductsStore((state) => state.recordMovement);
+  const confirm = useConfirm();
   const [movementType, setMovementType] = useState("PURCHASE");
   const [quantity, setQuantity] = useState("1");
   const [reason, setReason] = useState("");
@@ -385,11 +421,28 @@ function MovementForm({
       );
       return;
     }
+    if (movementType !== "PURCHASE") {
+      const signed = movementType === "ADJUSTMENT" ? qty : -qty;
+      const ok = await confirm({
+        title: `Enregistrer ${MOVEMENT_ARTICLE[movementType] ?? "ce mouvement"} ?`,
+        details: [
+          `${lot.name} · lot ${lot.lotNumber}`,
+          `${MOVEMENT_LABELS[movementType] ?? movementType} : ${signed > 0 ? `+${signed}` : signed}`,
+          `Stock actuel : ${lot.stock}`,
+          ...(reason.trim() ? [`Raison : ${reason.trim()}`] : []),
+        ],
+        body: "Le mouvement s'ajoute à l'historique du lot. Pour le corriger, il faudra l'annuler par un mouvement inverse.",
+        confirmLabel: "Enregistrer le mouvement",
+        cancelLabel: "Retour",
+        tone: signed < 0 ? "danger" : "default",
+      });
+      if (!ok) return;
+    }
     setSaving(true);
     setError(null);
     try {
       const saved = await recordMovement({
-        lotId,
+        lotId: lot.id,
         movementType,
         quantity: qty,
         reason: emptyToNull(reason),
@@ -463,6 +516,8 @@ function LotDetail({
 }) {
   const { listSessions, listUnits, listMovements, openUnit, exitUnit, undoMovement, get } =
     useProductsStore();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
   const [sessions, setSessions] = useState<LotSessionItem[]>([]);
   const [units, setUnits] = useState<UnitView[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
@@ -509,6 +564,7 @@ function LotDetail({
 
   async function run(action: () => Promise<void>) {
     setError(null);
+    setBusy(true);
     try {
       await action();
       const next = await get(lot.id);
@@ -516,7 +572,67 @@ function LotDetail({
       await refresh(next);
     } catch (actionError) {
       setError(String(actionError));
+    } finally {
+      setBusy(false);
     }
+  }
+
+  function unitState(unit: UnitView): string {
+    if (!unit.inStock) return EXIT_LABELS[unit.exitType ?? ""] ?? "Sortie";
+    return unit.openedAt ? `ouverte le ${formatIsoDate(unit.openedAt)}` : "scellée";
+  }
+
+  async function confirmExit(unit: UnitView, position: number, type: string) {
+    const action = EXIT_ACTIONS[type];
+    const ok = await confirm({
+      title: action.title,
+      details: [`${lot.name} · lot ${lot.lotNumber}`, `Pièce ${position} · ${unitState(unit)}`],
+      body: action.body,
+      confirmLabel: action.label,
+      cancelLabel: "Retour",
+      tone: "danger",
+    });
+    if (!ok) return;
+    await run(async () => {
+      await exitUnit(unit.id, type);
+    });
+  }
+
+  async function confirmRestock(unit: UnitView, position: number, movementId: string) {
+    const ok = await confirm({
+      title: "Remettre cette pièce en stock ?",
+      details: [`${lot.name} · lot ${lot.lotNumber}`, `Pièce ${position} · ${unitState(unit)}`],
+      body: "La sortie est annulée par un mouvement inverse. L'historique garde les deux mouvements.",
+      confirmLabel: "Remettre en stock",
+      cancelLabel: "Retour",
+    });
+    if (!ok) return;
+    await run(async () => {
+      await undoMovement(movementId);
+    });
+  }
+
+  async function confirmUndo(movement: StockMovement) {
+    const label =
+      movement.type === "CONSUMPTION" && movement.unitId
+        ? "Terminé"
+        : (MOVEMENT_LABELS[movement.type] ?? movement.type);
+    const quantity = movement.quantity > 0 ? `+${movement.quantity}` : `${movement.quantity}`;
+    const ok = await confirm({
+      title: "Annuler ce mouvement ?",
+      details: [
+        `${lot.name} · lot ${lot.lotNumber}`,
+        `${label} · ${quantity} · ${formatTimestamp(movement.createdAt)}`,
+      ],
+      body: "Un mouvement inverse est ajouté. Le mouvement d'origine reste visible dans l'historique.",
+      confirmLabel: "Annuler le mouvement",
+      cancelLabel: "Garder",
+      tone: "danger",
+    });
+    if (!ok) return;
+    await run(async () => {
+      await undoMovement(movement.id);
+    });
   }
 
   const rows: [string, string | null][] = [
@@ -525,10 +641,7 @@ function LotDetail({
     ["Stock", stockLabel(lot)],
     ["Expiration", formatIsoDate(lot.expirationDate)],
     ["Fabrication", lot.creationDate ? formatIsoDate(lot.creationDate) : null],
-    [
-      "Après ouverture",
-      lot.afterOpeningMonths != null ? `${lot.afterOpeningMonths} mois` : null,
-    ],
+    ["Après ouverture", lot.afterOpeningMonths != null ? `${lot.afterOpeningMonths} mois` : null],
     ["URL", lot.productUrl],
     ["Créé le", formatTimestamp(lot.createdAt)],
     ["Modifié le", formatTimestamp(lot.updatedAt)],
@@ -579,7 +692,7 @@ function LotDetail({
 
       {lot.singleUse ? (
         <MovementForm
-          lotId={lot.id}
+          lot={lot}
           onSaved={(saved) => {
             onChange(saved);
             void refresh(saved);
@@ -615,12 +728,11 @@ function LotDetail({
                       <button
                         type="button"
                         className={`${btnGhost} mt-3`}
+                        disabled={busy}
                         onClick={() => {
                           const movementId = unit.exitMovementId;
                           if (!movementId) return;
-                          void run(async () => {
-                            await undoMovement(movementId);
-                          });
+                          void confirmRestock(unit, index + 1, movementId);
                         }}
                       >
                         Remettre en stock
@@ -673,12 +785,8 @@ function LotDetail({
                               key={type}
                               type="button"
                               className={btnGhost}
-                              onClick={() =>
-                                void run(async () => {
-                                  await exitUnit(unit.id, type);
-                                  await refresh();
-                                })
-                              }
+                              disabled={busy}
+                              onClick={() => void confirmExit(unit, index + 1, type)}
                             >
                               {label}
                             </button>
@@ -729,11 +837,8 @@ function LotDetail({
                 <button
                   type="button"
                   className={btnGhost}
-                  onClick={() =>
-                    void run(async () => {
-                      await undoMovement(movement.id);
-                    })
-                  }
+                  disabled={busy}
+                  onClick={() => void confirmUndo(movement)}
                 >
                   Annuler
                 </button>

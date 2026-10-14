@@ -23,6 +23,9 @@ Les règles `.mdc` sont du Markdown avec un en-tête YAML. Tout agent peut les l
 pnpm install                     # dépendances frontend
 pnpm tauri dev                   # lancer l'app en développement
 pnpm build                       # tsc + build Vite (vérifie les types)
+pnpm lint                        # ESLint
+pnpm format                      # Prettier (pnpm format:check pour vérifier)
+pnpm check                       # lint + format:check + build
 cd src-tauri && cargo test       # tests Rust (règles métier, sauvegardes)
 cd src-tauri && cargo fmt --check
 cd src-tauri && cargo clippy --all-targets -- -D warnings
@@ -43,7 +46,7 @@ Toute règle métier vit dans `src-tauri/src/services/`. React affiche, collecte
 
 Une tâche n'est finie que si :
 
-1. `pnpm build`, `cargo test`, `cargo fmt --check` et `cargo clippy -- -D warnings` passent.
+1. `pnpm check`, `cargo test`, `cargo fmt --check` et `cargo clippy --all-targets -- -D warnings` passent. La CI (`.github/workflows/ci.yml`) lance les mêmes commandes.
 2. Chaque nouvelle règle métier a un test Rust (cas nominal + cas refusé).
 3. L'écran gère les états chargement, vide, erreur et succès (voir `ux-ui.mdc`).
 4. Toute action sensible a sa confirmation (liste dans `ux-ui.mdc`).
@@ -77,13 +80,13 @@ Skills tiers installés (`skills-lock.json`, ne pas les modifier : ils sont écr
 
 Ces écarts existent dans le code actuel. Ne pas les copier ; les corriger quand on travaille dans la zone.
 
-- `backup.rs` copie le fichier SQLite avec `fs::copy` alors que la base est ouverte en WAL. Cible : `VACUUM INTO`.
 - `update_session` permet de changer le client d'une séance qui a des produits liés. Cible : refusé.
 - `update_lot` permet de modifier nom, numéro et péremption d'un lot déjà utilisé, sans trace. Cible : refusé ou motif journalisé.
 - Le statut « périmé » côté Rust ignore `opened_at + after_opening_months`. Le calcul existe seulement dans `products-page.tsx`. Cible : calcul unique en Rust.
 - Comparaisons de dates avec `date('now')` (UTC) au lieu de la date locale.
-- Erreurs SQL brutes affichées à l'utilisateur (`Database(error)` → `Display`).
-- Actions sensibles sans confirmation : sortir un flacon, annuler un mouvement, lier un produit à une séance.
-- `clean` et `like_pattern` dupliqués dans `clients.rs` et `sessions.rs` (existent dans `services/sql.rs`).
+- `open_unit` réécrit `opened_at` sans contrôle (date future acceptée) et même si la pièce a déjà servi en séance : l'historique de la date d'ouverture n'est pas gardé.
+- Pas encore de toast de succès : les écritures réussies ne sont signalées que par le rafraîchissement de l'écran.
+- Trois écrans appellent `setLoading(true)` dans un `useEffect` (avertissement ESLint `react-hooks/set-state-in-effect`, passé en `warn` en attendant).
+- `usefulUntil` et `addMonthsIso` dans `products-page.tsx` recalculent une règle métier côté React.
 - Tables `products` et `session_products` conservées mais inutilisées depuis la migration 006.
-- ESLint, Prettier, Vitest, Playwright et la CI ne sont pas encore installés.
+- Vitest et Playwright ne sont pas encore installés : pas de tests frontend.

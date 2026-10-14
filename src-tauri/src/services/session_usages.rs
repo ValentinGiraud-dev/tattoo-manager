@@ -311,9 +311,7 @@ pub async fn link_session(
             return Err(LotError::Invalid("Le lot est introuvable"));
         };
         if !single_use {
-            return Err(LotError::Invalid(
-                "Un usage multiple se lie par la pièce",
-            ));
+            return Err(LotError::Invalid("Un usage multiple se lie par la pièce"));
         }
         let quantity = input.quantity.unwrap_or(0);
         if quantity <= 0 {
