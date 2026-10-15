@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
-export type AppPage = "dashboard" | "planning" | "clients" | "sessions" | "products" | "settings";
+export type AppPage =
+  "dashboard" | "planning" | "clients" | "sessions" | "products" | "reports" | "settings";
 
 /** Demande d'ouverture faite depuis un autre écran (planning, fiche client…). */
 export type SessionIntent =

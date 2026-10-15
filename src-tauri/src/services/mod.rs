@@ -2,8 +2,10 @@ use sqlx::SqlitePool;
 
 pub mod billing;
 pub mod clients;
+pub mod dashboard;
 pub mod error;
 pub mod expiry;
+pub mod exports;
 pub mod form_pdf;
 pub mod lots;
 pub mod paperwork;
@@ -16,6 +18,8 @@ pub mod units;
 
 #[cfg(test)]
 mod appointments_tests;
+#[cfg(test)]
+mod dashboard_tests;
 #[cfg(test)]
 mod migration_009_tests;
 #[cfg(test)]

@@ -112,6 +112,19 @@ const DEPOSIT_SELECT: &str = "SELECT
  LEFT JOIN deposit_outcomes o ON o.deposit_id = d.id AND o.voided_at IS NULL
  LEFT JOIN sessions os ON os.id = o.session_id";
 
+/// Montant réglé d'une séance `s` en SQL : acomptes déduits + paiements, hors annulés.
+/// Même règle que `get_session_billing` (un test le vérifie) ; sert aux listes.
+pub(crate) const SESSION_PAID_SQL: &str = "(
+    COALESCE((SELECT SUM(dd.amount_cents)
+              FROM deposits dd
+              INNER JOIN deposit_outcomes oo
+                 ON oo.deposit_id = dd.id AND oo.voided_at IS NULL
+              WHERE dd.voided_at IS NULL AND oo.outcome = 'APPLIED'
+                AND oo.session_id = s.id), 0)
+    + COALESCE((SELECT SUM(pp.amount_cents) FROM payments pp
+                WHERE pp.session_id = s.id AND pp.voided_at IS NULL), 0)
+)";
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct PaymentView {

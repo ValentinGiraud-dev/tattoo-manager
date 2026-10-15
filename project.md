@@ -955,7 +955,7 @@ La roadmap est indicative et pourra changer.
 - [ ] Marques, fournisseurs, emplacement
 - [ ] Hygiène et stérilisation
 - [ ] Documents et photos
-- [ ] Rapports
+- [x] Rapports (accueil : séances du jour, alertes, chiffres du mois ; écran Rapports par période)
 
 
 
@@ -963,7 +963,7 @@ La roadmap est indicative et pourra changer.
 
 - [x] Backup manuel (« Sauvegarder maintenant », dossier au choix : iCloud Drive, disque externe…)
 - [x] Restauration (vérifiée avant, données remplacées mises de côté)
-- [ ] Export (CSV)
+- [x] Export (CSV) : encaissements, séances, registre de traçabilité
 - [x] Backup automatique (quotidien, au verrouillage, à la fermeture si changement ; 30 gardés)
 - [x] Chiffrement de la base (SQLCipher) et des documents
 - [x] Verrouillage : mot de passe, clé de secours, Touch ID, verrouillage automatique

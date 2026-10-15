@@ -14,6 +14,8 @@ use crate::services::billing::{
     self, DepositInput, DepositView, PaymentInput, PaymentView, SessionBilling, SettleDepositInput,
 };
 use crate::services::clients::{self, ClientInput};
+use crate::services::dashboard::{self, Dashboard, PeriodSummary};
+use crate::services::exports::{self, ExportKind};
 use crate::services::lots::{self, CreateLotInput, LotSummary, UpdateLotInput};
 use crate::services::paperwork::{
     self, ConsentAnswers, DocumentKind, FormKind, HealthAnswers, Paperwork, SessionDocument,
@@ -571,6 +573,61 @@ pub async fn void_payment(
     billing::void_payment(&db.pool()?, &payment_id, &reason)
         .await
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_dashboard(db: State<'_, Db>) -> Result<Dashboard, String> {
+    dashboard::get_dashboard(&db.pool()?, services::expiry::today())
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_period_summary(
+    db: State<'_, Db>,
+    from: String,
+    to: String,
+) -> Result<PeriodSummary, String> {
+    dashboard::period_summary(&db.pool()?, &from, &to)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResult {
+    pub path: String,
+    pub rows: usize,
+}
+
+/// Écrit un export CSV à l'endroit choisi dans le dialogue d'enregistrement.
+/// Le fichier est en clair : l'écran le signale avant.
+#[tauri::command]
+pub async fn export_csv(
+    db: State<'_, Db>,
+    kind: ExportKind,
+    from: String,
+    to: String,
+    path: String,
+) -> Result<ExportResult, String> {
+    let mut target = PathBuf::from(path);
+    if !target.is_absolute() {
+        return Err("Choisissez où enregistrer le fichier.".to_string());
+    }
+    if target.extension().and_then(|ext| ext.to_str()) != Some("csv") {
+        target.set_extension("csv");
+    }
+    let csv = exports::export(&db.pool()?, kind, &from, &to)
+        .await
+        .map_err(|error| error.to_string())?;
+    std::fs::write(&target, csv.bytes()).map_err(|error| {
+        eprintln!("export CSV : {}", error.kind());
+        "Le fichier n'a pas pu être enregistré à cet endroit.".to_string()
+    })?;
+    Ok(ExportResult {
+        path: target.display().to_string(),
+        rows: csv.rows,
+    })
 }
 
 #[tauri::command]

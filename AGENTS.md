@@ -91,7 +91,7 @@ Ces écarts existent dans le code actuel. Ne pas les copier ; les corriger quand
 - Les classes de boutons et champs sont recopiées en tête de chaque écran ancien : utiliser `src/components/styles.ts`.
 - Code Touch ID et Trousseau (`security/biometry.rs`, `macos/touch_id.m`) compilé seulement sur macOS : seul le job CI `macos` le vérifie.
 - Pas de rotation de la clé maître : changer le mot de passe ne rechiffre pas les données (voir `security-privacy.mdc`).
-- Pas encore d'export CSV.
+- Pas de seuil de stock bas : l'accueil ne signale que la péremption.
 - Navigation entre écrans limitée aux séances (`useUIStore().openSession` / `newSession`). Pas encore d'historique « Précédent ».
 - Pas encore de journal d'audit générique (`audit_log`) : seules les annulations de liens et les mouvements de stock gardent une trace motivée.
 - Tables `products` et `session_products` conservées mais inutilisées depuis la migration 006.

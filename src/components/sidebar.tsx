@@ -51,11 +51,12 @@ function BackupStatus({ onOpen }: { onOpen: () => void }) {
 }
 
 const NAV: { id: AppPage; label: string }[] = [
-  { id: "dashboard", label: "Dashboard" },
+  { id: "dashboard", label: "Accueil" },
   { id: "planning", label: "Planning" },
   { id: "clients", label: "Clients" },
   { id: "sessions", label: "Séances" },
   { id: "products", label: "Produits" },
+  { id: "reports", label: "Rapports" },
   { id: "settings", label: "Paramètres" },
 ];
 

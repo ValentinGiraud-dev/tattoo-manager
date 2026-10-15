@@ -11,7 +11,7 @@ Tracink contient des données personnelles et, avec les questionnaires, des donn
 
 - Collecter seulement ce qui sert. Un nouveau champ client ou santé doit avoir un usage clair.
 - Données dans le dossier de l'app (`AppPaths`) uniquement. Jamais dans le dépôt, `/tmp`, `localStorage` ou un fichier exporté sans action explicite de l'utilisatrice. Seule exception : `AppPaths.opened` (copies en clair ouvertes dans Aperçu ou à imprimer), vidé au verrouillage, à la fermeture et au démarrage.
-- Exports (PDF, CSV) : seulement à la demande, avec dialogue d'enregistrement, et en le signalant à l'écran.
+- Exports (PDF, CSV) : seulement à la demande, avec dialogue d'enregistrement, et en le signalant à l'écran (le fichier est en clair). CSV : `services/exports.rs`, texte libre passé par `text_cell` (neutralise les formules `=`, `+`, `-`, `@`).
 - Pas de suppression physique des données tracées. Une demande d'effacement passera par une anonymisation documentée, à concevoir avec la tatoueuse.
 - Durées de conservation : ne pas les inventer. Les rendre paramétrables et demander.
 
