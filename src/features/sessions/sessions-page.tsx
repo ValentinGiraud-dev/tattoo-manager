@@ -1,275 +1,31 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
+import { btnGhost, btnPrimary, fieldClass } from "../../components/styles";
 import { useConfirm } from "../../components/use-confirm";
-import { DateSelector } from "../../components/date-selector";
 import { formatIsoDate, formatTimestamp } from "../../lib/format";
+import { formatTimeRange, SESSION_STATUS_LABELS } from "../../lib/labels";
+import { formatEuros } from "../../lib/money";
 import type { FormKind, Paperwork } from "../../stores/paperwork-store";
-import { ConsentFormView } from "./consent-form";
-import { HealthFormView } from "./health-form";
-import { SessionPaperwork } from "./session-paperwork";
-import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
-import { useClientsStore } from "../../stores/clients-store";
 import {
   useProductsStore,
   type LinkableItem,
   type SessionUsageItem,
 } from "../../stores/products-store";
-import {
-  useSessionsStore,
-  type SessionInput,
-  type SessionListItem,
-  type SessionStatus,
-} from "../../stores/sessions-store";
+import { useSessionsStore, type SessionListItem } from "../../stores/sessions-store";
+import { useUIStore } from "../../stores/ui-store";
+import { ConsentFormView } from "./consent-form";
+import { HealthFormView } from "./health-form";
+import { SessionBilling } from "./session-billing";
+import { SessionForm, type SessionDraft } from "./session-form";
+import { SessionPaperwork } from "./session-paperwork";
+import { StatusBadge } from "./session-status";
 
 type View =
   | { kind: "list" }
-  | { kind: "form"; session?: SessionListItem }
+  | { kind: "form"; session?: SessionListItem; draft?: SessionDraft }
   | { kind: "detail"; session: SessionListItem };
-
-const emptyToNull = (value: string) => (value.trim() === "" ? null : value.trim());
-
-const fieldClass =
-  "mt-1.5 w-full rounded-md border border-line-strong bg-bg px-3 py-2 text-[14px] text-fg outline-none transition-[border-color,box-shadow] placeholder:text-fg-faint focus:border-accent";
-const labelClass = "block text-[12.5px] font-medium text-fg-muted";
-const btnPrimary =
-  "inline-flex items-center rounded-pill bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-fg transition-[filter] hover:brightness-110 disabled:opacity-45";
-const btnGhost =
-  "inline-flex items-center rounded-pill border border-line-strong px-3.5 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg disabled:opacity-45";
-
-const STATUS_LABELS: Record<SessionStatus, string> = {
-  PLANNED: "Planifiée",
-  COMPLETED: "Terminée",
-  CANCELLED: "Annulée",
-  RESCHEDULED: "Reportée",
-};
-
-const STATUS_BADGE: Record<SessionStatus, string> = {
-  PLANNED: "bg-info/15 text-info",
-  COMPLETED: "bg-success/15 text-success",
-  CANCELLED: "bg-fg-faint/15 text-fg-muted",
-  RESCHEDULED: "bg-warning/15 text-warning",
-};
-
-function StatusBadge({ status }: { status: SessionStatus }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-pill px-2.5 py-0.5 text-[12px] font-medium ${STATUS_BADGE[status]}`}
-    >
-      <i className="size-1.5 rounded-full bg-current" aria-hidden />
-      {STATUS_LABELS[status]}
-    </span>
-  );
-}
 
 function clientName(session: SessionListItem) {
   return `${session.clientFirstName} ${session.clientLastName}`;
-}
-
-function SessionForm({
-  session,
-  onDone,
-}: {
-  session?: SessionListItem;
-  onDone: (saved?: SessionListItem) => void;
-}) {
-  const { create, update } = useSessionsStore();
-  const { clients, load: loadClients } = useClientsStore();
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [date, setDate] = useState<string | null>(session?.date ?? null);
-  const [dirty, setDirty] = useState(false);
-  /** Séance avec produits liés : le client est figé (règle vérifiée en Rust). */
-  const clientLocked = (session?.usageCount ?? 0) > 0;
-  const confirm = useConfirm();
-  const guardedLeave = useGuardedLeave();
-  const currentYear = new Date().getFullYear();
-  useUnsavedChanges(dirty);
-
-  useEffect(() => {
-    void loadClients("");
-  }, [loadClients]);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const text = (name: string) => String(data.get(name) ?? "");
-    const status = text("status") as SessionStatus;
-    if (!date) {
-      setError("La date est obligatoire");
-      return;
-    }
-    const input: SessionInput = {
-      clientId: clientLocked && session ? session.clientId : text("clientId").trim(),
-      date,
-      status,
-      bodyArea: emptyToNull(text("bodyArea")),
-      description: emptyToNull(text("description")),
-      notes: emptyToNull(text("notes")),
-    };
-    if (!input.clientId) {
-      setError("Le client est obligatoire");
-      return;
-    }
-    if ((status === "CANCELLED" || status === "RESCHEDULED") && status !== session?.status) {
-      const client = clients.find((item) => item.id === input.clientId);
-      const ok = await confirm({
-        title:
-          status === "CANCELLED"
-            ? "Marquer cette séance comme annulée ?"
-            : "Marquer cette séance comme reportée ?",
-        details: [
-          client ? `${client.firstName} ${client.lastName}` : "Client",
-          formatIsoDate(date),
-          ...(input.bodyArea ? [input.bodyArea] : []),
-        ],
-        body:
-          status === "CANCELLED"
-            ? "La séance reste dans l'historique avec le statut « Annulée »."
-            : "La séance reste dans l'historique avec le statut « Reportée ». Crée une nouvelle séance pour la nouvelle date.",
-        confirmLabel: status === "CANCELLED" ? "Annuler la séance" : "Reporter la séance",
-        cancelLabel: "Retour",
-        tone: status === "CANCELLED" ? "danger" : "default",
-      });
-      if (!ok) return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const saved = session ? await update(session.id, input) : await create(input);
-      setDirty(false);
-      onDone(saved);
-    } catch (submitError) {
-      setError(String(submitError));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <form
-      onSubmit={(event) => void submit(event)}
-      onInput={(event) => {
-        if ((event.target as HTMLElement).getAttribute("name")) setDirty(true);
-      }}
-      className="mx-auto flex max-w-xl flex-col gap-4 px-8 py-10"
-    >
-      <div>
-        <button
-          type="button"
-          onClick={() => void guardedLeave(() => onDone())}
-          className="mb-4 text-[13px] text-fg-muted hover:text-fg"
-        >
-          ← Retour
-        </button>
-        <h1 className="text-[24px] font-medium tracking-tight">
-          {session ? "Modifier la séance" : "Nouvelle séance"}
-        </h1>
-      </div>
-
-      <label className={labelClass}>
-        Client *
-        <select
-          name="clientId"
-          required
-          defaultValue={session?.clientId ?? ""}
-          disabled={clientLocked}
-          className={`${fieldClass} disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-fg-muted`}
-        >
-          <option value="" disabled>
-            Choisir un client
-          </option>
-          {clients.map((client) => (
-            <option key={client.id} value={client.id}>
-              {client.lastName} {client.firstName}
-            </option>
-          ))}
-        </select>
-        {clientLocked && (
-          <span className="mt-1.5 block text-[12.5px] font-normal text-fg-muted">
-            Des produits sont liés à cette séance : elle reste attachée à ce client pour la
-            traçabilité.
-          </span>
-        )}
-      </label>
-
-      <div>
-        <label htmlFor="session-date" className={labelClass}>
-          Date *
-        </label>
-        <DateSelector
-          id="session-date"
-          value={date}
-          onChange={(value) => {
-            setDate(value);
-            setDirty(true);
-          }}
-          placeholder="Choisir la date de séance"
-          minYear={currentYear - 10}
-          maxYear={currentYear + 2}
-        />
-      </div>
-
-      <label className={labelClass}>
-        Statut *
-        <select
-          name="status"
-          required
-          defaultValue={session?.status ?? "PLANNED"}
-          className={fieldClass}
-        >
-          {(Object.keys(STATUS_LABELS) as SessionStatus[]).map((status) => (
-            <option key={status} value={status}>
-              {STATUS_LABELS[status]}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className={labelClass}>
-        Zone du corps
-        <input
-          name="bodyArea"
-          defaultValue={session?.bodyArea ?? ""}
-          placeholder="Ex. avant-bras gauche"
-          className={fieldClass}
-        />
-      </label>
-
-      <label className={labelClass}>
-        Description
-        <textarea
-          name="description"
-          rows={3}
-          defaultValue={session?.description ?? ""}
-          className={fieldClass}
-        />
-      </label>
-
-      <label className={labelClass}>
-        Notes
-        <textarea
-          name="notes"
-          rows={3}
-          defaultValue={session?.notes ?? ""}
-          className={fieldClass}
-        />
-      </label>
-
-      {error && <p className="text-[13px] text-danger">{error}</p>}
-
-      <div className="flex items-center gap-3 pt-1">
-        <button type="submit" disabled={saving} className={btnPrimary}>
-          {saving ? "Enregistrement…" : "Enregistrer"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void guardedLeave(() => onDone())}
-          className={btnGhost}
-        >
-          Annuler
-        </button>
-      </div>
-    </form>
-  );
 }
 
 function SessionProducts({ session }: { session: SessionListItem }) {
@@ -590,7 +346,10 @@ function SessionDetail({
   const rows: [string, string | null][] = [
     ["Client", clientName(session)],
     ["Date", formatIsoDate(session.date)],
-    ["Statut", STATUS_LABELS[session.status]],
+    ["Horaire", formatTimeRange(session.startTime, session.durationMinutes)],
+    ["Statut", SESSION_STATUS_LABELS[session.status]],
+    ["Projet", session.projectTitle],
+    ["Prix", session.priceCents === null ? null : formatEuros(session.priceCents)],
     ["Zone", session.bodyArea],
     ["Description", session.description],
     ["Notes", session.notes],
@@ -612,9 +371,12 @@ function SessionDetail({
           <div className="mb-2">
             <StatusBadge status={session.status} />
           </div>
-          <h1 className="text-[24px] font-medium tracking-tight">{session.bodyArea ?? "Séance"}</h1>
+          <h1 className="text-[24px] font-medium tracking-tight">
+            {session.bodyArea ?? session.projectTitle ?? "Séance"}
+          </h1>
           <p className="mt-1 text-[13px] text-fg-muted">
             {clientName(session)} · {formatIsoDate(session.date)}
+            {session.startTime ? ` · ${session.startTime}` : ""}
           </p>
         </div>
         <button type="button" onClick={onEdit} className={btnPrimary}>
@@ -629,6 +391,18 @@ function SessionDetail({
           </div>
         ))}
       </dl>
+      {session.clientNoShowCount > 0 && (
+        <p
+          role="note"
+          className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[13px] text-fg"
+        >
+          <span aria-hidden="true">⚠︎ </span>
+          {session.clientFirstName} a déjà {session.clientNoShowCount} absence
+          {session.clientNoShowCount > 1 ? "s" : ""} enregistrée
+          {session.clientNoShowCount > 1 ? "s" : ""}.
+        </p>
+      )}
+      <SessionBilling session={session} />
       <SessionPaperwork
         key={paperworkVersion}
         sessionId={session.id}
@@ -642,15 +416,33 @@ function SessionDetail({
 export default function SessionsPage() {
   const { sessions, search, loading, error, load, get: getSession } = useSessionsStore();
   const [view, setView] = useState<View>({ kind: "list" });
+  const sessionIntent = useUIStore((state) => state.sessionIntent);
+  const takeSessionIntent = useUIStore((state) => state.takeSessionIntent);
 
   useEffect(() => {
     void load("");
   }, [load]);
 
+  // Ouverture demandée depuis le planning ou la fiche client.
+  useEffect(() => {
+    if (!sessionIntent) return;
+    const intent = takeSessionIntent();
+    if (!intent) return;
+    if (intent.kind === "new") {
+      const { date, startTime, clientId, projectId } = intent;
+      setView({ kind: "form", draft: { date, startTime, clientId, projectId } });
+      return;
+    }
+    void getSession(intent.sessionId)
+      .then((session) => setView({ kind: "detail", session }))
+      .catch(() => setView({ kind: "list" }));
+  }, [sessionIntent, takeSessionIntent, getSession]);
+
   if (view.kind === "form") {
     return (
       <SessionForm
         session={view.session}
+        draft={view.draft}
         onDone={(saved) =>
           setView(
             saved
@@ -737,6 +529,8 @@ export default function SessionsPage() {
                   </span>
                   <span className="mt-0.5 block truncate text-[12.5px] text-fg-muted">
                     {formatIsoDate(session.date)}
+                    {session.startTime ? ` · ${session.startTime}` : ""}
+                    {session.projectTitle ? ` · ${session.projectTitle}` : ""}
                     {session.bodyArea ? ` · ${session.bodyArea}` : ""}
                   </span>
                 </span>

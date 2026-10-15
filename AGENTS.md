@@ -85,11 +85,10 @@ Les PDF de l'atelier (`src-tauri/assets/forms/`) sont pré-remplis par superposi
 Ces écarts existent dans le code actuel. Ne pas les copier ; les corriger quand on travaille dans la zone.
 
 - Pas encore de toast de succès : les écritures réussies ne sont signalées que par le rafraîchissement de l'écran.
-- Trois écrans appellent `setLoading(true)` dans un `useEffect` (avertissement ESLint `react-hooks/set-state-in-effect`, passé en `warn` en attendant).
-- `STATUS_LABELS` des séances est recopié dans `sessions-page.tsx`, `products-page.tsx` et `client-history.tsx` : utiliser `SESSION_STATUS_LABELS` (`src/lib/labels.ts`).
+- Quatre écrans appellent `setState` dans un `useEffect` (avertissement ESLint `react-hooks/set-state-in-effect`, passé en `warn` en attendant).
 - Les classes de boutons et champs sont recopiées en tête de chaque écran ancien : utiliser `src/components/styles.ts`.
 - Base SQLite et dossier `documents/` non chiffrés alors qu'ils contiennent des données de santé (voir `security-privacy.mdc`).
-- Pas encore de navigation entre écrans (ex. ouvrir une séance depuis la fiche client).
+- Navigation entre écrans limitée aux séances (`useUIStore().openSession` / `newSession`). Pas encore d'historique « Précédent ».
 - Pas encore de journal d'audit générique (`audit_log`) : seules les annulations de liens et les mouvements de stock gardent une trace motivée.
 - Tables `products` et `session_products` conservées mais inutilisées depuis la migration 006.
 - Vitest et Playwright ne sont pas encore installés : pas de tests frontend.

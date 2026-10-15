@@ -8,6 +8,8 @@ pub enum SessionStatus {
     Completed,
     Cancelled,
     Rescheduled,
+    /// Client absent sans prévenir.
+    NoShow,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -15,8 +17,12 @@ pub enum SessionStatus {
 pub struct Session {
     pub id: String,
     pub client_id: String,
+    pub project_id: Option<String>,
     pub date: String,
+    pub start_time: Option<String>,
+    pub duration_minutes: Option<i64>,
     pub status: SessionStatus,
+    pub price_cents: Option<i64>,
     pub body_area: Option<String>,
     pub description: Option<String>,
     pub notes: Option<String>,

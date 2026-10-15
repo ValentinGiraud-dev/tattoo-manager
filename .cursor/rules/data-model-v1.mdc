@@ -22,7 +22,13 @@ UNIT 1──< STOCK_MOVEMENT
 ## Champs
 
 - `clients` : `id`, `first_name`, `last_name`, `created_at`, `updated_at` obligatoires. `birth_date`, `email`, `phone`, `notes` optionnels.
-- `sessions` : `client_id`, `date`, `status`, `created_at`, `updated_at` obligatoires. Statuts V1 : `PLANNED`, `COMPLETED`, `CANCELLED`, `RESCHEDULED`. `body_area`, `description`, `notes` optionnels.
+- `sessions` : `client_id`, `date`, `status`, `created_at`, `updated_at` obligatoires. Statuts : `PLANNED`, `COMPLETED`, `CANCELLED`, `RESCHEDULED`, `NO_SHOW` (absent). Optionnels : `project_id`, `start_time` (« HH:MM » local), `duration_minutes` (15 à 720, exige une heure), `price_cents`, `body_area`, `description`, `notes`.
+- `projects` : `client_id`, `title`, `status` (`ACTIVE`, `COMPLETED`, `ABANDONED`), `created_at`, `updated_at`. Optionnels : `body_area`, `description`, `quoted_price_cents`. Une séance ne rejoint qu'un projet du même client.
+- `deposits` : acompte. `client_id`, `amount_cents` > 0, `method` (`CASH`, `CARD`, `TRANSFER`, `CHECK`, `OTHER`), `received_on`, et au moins un de `project_id` / `session_id`. `void_reason` / `voided_at` pour une saisie erronée.
+- `deposit_outcomes` : issue d'un acompte, `APPLIED` (séance obligatoire), `FORFEITED`, `REFUNDED`. Une seule issue active par acompte (index unique partiel) ; une issue s'annule avec un motif.
+- `payments` : paiement d'une séance. `session_id`, `amount_cents` > 0, `method`, `paid_on`, annulation avec motif.
+
+Montants en centimes (entiers). Les tables d'argent refusent `UPDATE` (sauf l'annulation, une fois) et `DELETE` par triggers.
 - `lots` : `name`, `lot_number`, `expiration_date`, `single_use`, `created_at`, `updated_at` obligatoires. `creation_date`, `after_opening_months`, `product_url` optionnels. Identité : couple nom + numéro, sans tenir compte de la casse. `single_use` vaut 1 pour un usage unique (aiguille, cartouche, gant), 0 pour un usage multiple (encre, et tout produit réutilisé). `after_opening_months` est interdit quand `single_use` vaut 1. Un même numéro peut couvrir plusieurs lots si les noms diffèrent : une boîte d'aiguilles de plusieurs tailles est un lot par taille.
 - `units` : pièces d'un lot à usage multiple. `lot_id`, `created_at`, `updated_at` obligatoires. `opened_at` optionnel. Un lot usage unique n'en a aucune.
 - `stock_movements` : `lot_id`, `type`, `quantity`, `created_at` obligatoires. `unit_id`, `session_id`, `reason` optionnels. Types : `PURCHASE`, `CONSUMPTION`, `LOSS`, `EXPIRATION`, `RETURN`, `ADJUSTMENT`. La quantité affichée est la somme des mouvements. Elle n'est jamais stockée ni écrasée.
@@ -70,7 +76,10 @@ Ces règles protègent la traçabilité. Les services Rust les appliquent ; l'UI
 - Le statut « périmé » est calculé en Rust, dans `services/expiry.rs` : `expiration_date` pour un lot, la plus proche de `expiration_date` et `opened_at + after_opening_months` pour une pièce ouverte (un jour qui n'existe pas est ramené à la fin du mois). En stock : évalué à la date locale du jour. Pour un produit lié : évalué à la date de la séance. React n'en recalcule pas.
 - Un document signé (`HEALTH_SIGNED` ou `CONSENT_SIGNED`) non annulé fige les réponses correspondantes : `save_health` / `save_consent` refusent. Pour corriger : annuler le document (motif), puis faire signer un nouveau formulaire.
 - « Mineur » se calcule en Rust (`paperwork::age_at`) à la date de la séance. Date de naissance absente : majorité inconnue, signalée à l'écran. Un mineur exige un représentant légal (lien, nom, prénom) dans le consentement.
-- Aucun `DELETE` sur `clients`, `sessions`, `lots`, `units`, `stock_movements`, `session_usages`, `session_forms`, `session_documents`. Une future suppression RGPD passera par une anonymisation documentée.
+- Une séance qui a des acomptes, issues ou paiements ne change plus de client. Un projet qui a des séances ou des acomptes non plus.
+- Un acompte se déduit seulement d'une séance `PLANNED` ou `COMPLETED` du même client, rattachée à l'acompte (même séance ou même projet).
+- Dates d'encaissement jamais dans le futur.
+- Aucun `DELETE` sur `clients`, `sessions`, `lots`, `units`, `stock_movements`, `session_usages`, `session_forms`, `session_documents`, `projects`, `deposits`, `deposit_outcomes`, `payments`. Une future suppression RGPD passera par une anonymisation documentée.
 
 ## Dates
 

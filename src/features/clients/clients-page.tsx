@@ -4,6 +4,7 @@ import { formatIsoDate, formatTimestamp } from "../../lib/format";
 import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
 import { useClientsStore, type Client, type ClientInput } from "../../stores/clients-store";
 import { ClientHistory } from "./client-history";
+import { ClientProjects } from "./client-projects";
 
 type View =
   { kind: "list" } | { kind: "form"; client?: Client } | { kind: "detail"; client: Client };
@@ -203,6 +204,7 @@ function ClientDetail({
           </div>
         ))}
       </dl>
+      <ClientProjects key={`projects-${client.id}`} clientId={client.id} />
       <ClientHistory key={client.id} clientId={client.id} />
     </div>
   );

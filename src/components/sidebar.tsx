@@ -3,6 +3,7 @@ import { useGuardedLeave } from "./unsaved-changes";
 
 const NAV: { id: AppPage; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
+  { id: "planning", label: "Planning" },
   { id: "clients", label: "Clients" },
   { id: "sessions", label: "Séances" },
   { id: "products", label: "Produits" },

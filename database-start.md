@@ -335,6 +335,29 @@ SessionDocument
 * L'âge et la majorité se calculent à la date de la séance.
 * Les PDF d'origine sont dans `src-tauri/assets/forms/`. Le pré-remplissage écrit aux coordonnées des formulaires v1 (`services/form_pdf.rs`).
 
+Rendez-vous, projets, acomptes et paiements (migration 009)
+
+Session (ajouts)
+├── project_id        projet du même client, optionnel
+├── start_time        « HH:MM » local, optionnel
+├── duration_minutes  15 à 720, exige une heure
+├── price_cents       prix convenu
+└── status            + NO_SHOW (absent)
+
+Project
+├── id, client_id, title, body_area, description
+├── quoted_price_cents   prix annoncé de la pièce
+├── status               ACTIVE | COMPLETED | ABANDONED
+└── created_at, updated_at
+
+Deposit (acompte)        → projet et/ou séance ; montant, mode, date, note ; annulation motivée
+DepositOutcome           → APPLIED (séance) | FORFEITED | REFUNDED ; une seule active ; annulation motivée
+Payment                  → séance ; montant, mode, date, note ; annulation motivée
+
+* Montants en centimes. Les tables d'argent ne se modifient ni ne s'effacent (triggers) : une erreur s'annule avec un motif.
+* Reste à payer = prix − acomptes déduits − paiements.
+* La table sessions a été reconstruite (statut NO_SHOW) en gardant les identifiants : tous les liens existants sont conservés.
+
 Verrous de traçabilité
 
 * Une séance qui a des produits liés ne change plus de client.

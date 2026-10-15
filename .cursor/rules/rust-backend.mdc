@@ -43,6 +43,10 @@ alwaysApply: false
 - Additives : `CREATE TABLE`, `ADD COLUMN`, `CREATE INDEX`. Une transformation de données est explicite, testée et refuse de continuer si les données sont ambiguës (exemple : garde de la migration 006).
 - Skill `tracink-migration` pour la procédure complète.
 
+## Reconstruire une table
+
+SQLite ne modifie pas une contrainte `CHECK` : il faut recréer la table. sqlx exécute chaque migration dans une transaction (même avec `-- no-transaction` pour SQLite en 0.8), donc pas de `PRAGMA foreign_keys = OFF`. Modèle : `009_appointments_and_billing.sql` — `PRAGMA defer_foreign_keys = ON`, copie dans une table `TEMP`, `DROP`, `CREATE` sous le même nom, recopie avec les mêmes identifiants, puis vérification `pragma_foreign_key_check` qui fait échouer la migration si une référence est cassée. Tester avec des données (`migration_009_tests.rs`).
+
 ## Sauvegardes
 
 - Une copie de la base est faite avant les migrations (`backup::snapshot_database`, appelée dans `database::init`). Ne pas retirer ce comportement.

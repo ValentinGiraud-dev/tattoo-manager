@@ -307,6 +307,7 @@ migrations/
 ├── 006_lots_and_stock.sql
 ├── 007_session_usage_voids.sql
 ├── 008_session_paperwork.sql
+├── 009_appointments_and_billing.sql
 └── ...
 ```
 
@@ -440,20 +441,22 @@ Rendez-vous, documents, photos et consentements globaux ne sont pas sur le clien
 
 
 
-# 📅 Rendez-vous
+# 📅 Rendez-vous, projets et paiements (Phase 3)
 
-Hors V1. Le statut `PLANNED` d'une séance suffit pour commencer.
+Une séance est un rendez-vous : date, heure de début, durée, prix convenu, statut (`PLANNED`, `COMPLETED`, `CANCELLED`, `RESCHEDULED`, `NO_SHOW` = absent). Un chevauchement de créneaux est signalé, pas interdit.
 
-Le système pourra gérer plus tard :
+Un **projet** regroupe les séances d'une même pièce, avec un prix annoncé (devis) et des acomptes.
 
-- les rendez-vous ;
-- les créneaux ;
-- les statuts ;
-- les notes ;
-- les séances associées ;
-- les rappels éventuels.
+**Argent** (centimes, jamais modifié ni effacé, annulation avec motif) :
 
-La gestion du calendrier pourra évoluer indépendamment du reste de l'application.
+- **Acompte** versé pour un projet ou une séance. En attente tant qu'il n'a pas d'issue : déduit d'une séance du même client (projet ou séance correspondants), perdu (conservé par l'atelier) ou remboursé. Une issue erronée s'annule : l'acompte redevient en attente.
+- **Paiement** encaissé pour une séance (montant, mode, date).
+- **Reste à payer** d'une séance = prix − acomptes déduits − paiements.
+- Absent ou annulé : l'app demande ce que devient l'acompte en attente (garder, perdu, rembourser). Rien n'est automatique.
+
+**Planning** : vue semaine (lundi → dimanche), créneaux horaires, séances sans heure à part. Un clic sur un créneau libre crée une séance à cette heure.
+
+Rappels SMS / e-mail : hors périmètre (l'app est hors ligne).
 
 ---
 
@@ -945,7 +948,10 @@ La roadmap est indicative et pourra changer.
 
 ## Phase 6 — Évolutions métier
 
-- [ ] Rendez-vous
+- [x] Rendez-vous : heure, durée, planning semaine, chevauchements
+- [x] Projets (pièce en plusieurs séances)
+- [x] Prix, acomptes (déduit, perdu, remboursé) et paiements
+- [x] Statut « Absent » et sort de l'acompte
 - [ ] Marques, fournisseurs, emplacement
 - [ ] Hygiène et stérilisation
 - [ ] Documents et photos

@@ -23,6 +23,7 @@ mod tests {
             SessionStatus::Completed,
             SessionStatus::Cancelled,
             SessionStatus::Rescheduled,
+            SessionStatus::NoShow,
         ]
         .map(|status| serde_json::to_value(status).unwrap());
 
@@ -33,6 +34,7 @@ mod tests {
                 "COMPLETED".to_string(),
                 "CANCELLED".to_string(),
                 "RESCHEDULED".to_string(),
+                "NO_SHOW".to_string(),
             ]
         );
     }

@@ -18,9 +18,13 @@ export type ConfirmOptions = {
   tone?: ConfirmTone;
   /** Demande un motif avant de valider. */
   reason?: { label: string; required?: boolean; placeholder?: string };
+  /** Demande de choisir une option (boutons radio) avant de valider. */
+  choices?: { value: string; label: string; description?: string }[];
+  /** Option présélectionnée. Sans valeur, le choix est obligatoire. */
+  defaultChoice?: string;
 };
 
-export type ConfirmResult = { reason: string | null };
+export type ConfirmResult = { reason: string | null; choice: string | null };
 
 export type ConfirmRequest = ConfirmOptions & { resolve: (result: ConfirmResult | null) => void };
 
@@ -30,7 +34,7 @@ export const ConfirmContext = createContext<ConfirmFn | null>(null);
 
 /**
  * Demande une confirmation. Renvoie `null` si l'utilisatrice renonce,
- * sinon `{ reason }` (le motif saisi, ou `null` sans champ motif).
+ * sinon `{ reason, choice }` (motif saisi et option choisie, `null` s'ils ne sont pas demandés).
  *
  * ```ts
  * const ok = await confirm({ title: "…", confirmLabel: "Sortir la pièce", tone: "danger" });

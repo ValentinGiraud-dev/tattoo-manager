@@ -72,8 +72,12 @@ fn update_of(lot: &lots::LotSummary) -> UpdateLotInput {
 fn session_for(client_id: &str) -> SessionInput {
     SessionInput {
         client_id: client_id.into(),
+        project_id: None,
         date: "2026-10-14".into(),
+        start_time: None,
+        duration_minutes: None,
         status: SessionStatus::Planned,
+        price_cents: None,
         body_area: None,
         description: None,
         notes: None,

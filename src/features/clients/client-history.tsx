@@ -1,15 +1,10 @@
 import { useEffect, useState } from "react";
+import { SESSION_STATUS_LABELS } from "../../lib/labels";
 import { formatIsoDate } from "../../lib/format";
 import { useClientsStore } from "../../stores/clients-store";
+import { useUIStore } from "../../stores/ui-store";
 import type { SessionUsageItem } from "../../stores/products-store";
-import type { SessionListItem, SessionStatus } from "../../stores/sessions-store";
-
-const STATUS_LABELS: Record<SessionStatus, string> = {
-  PLANNED: "Planifiée",
-  COMPLETED: "Terminée",
-  CANCELLED: "Annulée",
-  RESCHEDULED: "Reportée",
-};
+import type { SessionListItem } from "../../stores/sessions-store";
 
 type History = { sessions: SessionListItem[]; usages: SessionUsageItem[] };
 
@@ -19,6 +14,7 @@ type History = { sessions: SessionListItem[]; usages: SessionUsageItem[] };
  */
 export function ClientHistory({ clientId }: { clientId: string }) {
   const { listSessions, listUsages } = useClientsStore();
+  const openSession = useUIStore((state) => state.openSession);
   const [history, setHistory] = useState<History | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,12 +56,17 @@ export function ClientHistory({ clientId }: { clientId: string }) {
                 key={session.id}
                 className={index > 0 ? "border-t border-line px-4 py-3" : "px-4 py-3"}
               >
-                <p className="text-[14px] font-medium">
+                <button
+                  type="button"
+                  onClick={() => openSession(session.id)}
+                  className="text-left text-[14px] font-medium hover:underline"
+                >
                   {formatIsoDate(session.date)}
+                  {session.startTime ? ` · ${session.startTime}` : ""}
                   {session.bodyArea ? ` · ${session.bodyArea}` : ""}
-                </p>
+                </button>
                 <p className="mt-0.5 text-[12.5px] text-fg-muted">
-                  {STATUS_LABELS[session.status]}
+                  {SESSION_STATUS_LABELS[session.status]}
                   {" · "}
                   {usages.length === 0
                     ? "aucun produit lié"

@@ -69,7 +69,9 @@ function ConfirmDialog({
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const [reason, setReason] = useState("");
   const tone = request.tone ?? "default";
+  const [choice, setChoice] = useState<string | null>(request.defaultChoice ?? null);
   const reasonMissing = request.reason?.required === true && reason.trim() === "";
+  const choiceMissing = (request.choices?.length ?? 0) > 0 && choice === null;
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -84,7 +86,8 @@ function ConfirmDialog({
       reasonRef.current?.focus();
       return;
     }
-    onClose({ reason: request.reason ? reason.trim() || null : null });
+    if (choiceMissing) return;
+    onClose({ reason: request.reason ? reason.trim() || null : null, choice });
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -149,6 +152,40 @@ function ConfirmDialog({
           )}
         </div>
 
+        {request.choices && request.choices.length > 0 && (
+          <fieldset className="mt-4 flex flex-col gap-2">
+            <legend className="sr-only">{request.title}</legend>
+            {request.choices.map((option) => (
+              <label
+                key={option.value}
+                className={[
+                  "flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2 text-[13.5px] transition-colors",
+                  choice === option.value
+                    ? "border-accent bg-surface-2 text-fg"
+                    : "border-line text-fg hover:bg-surface-2",
+                ].join(" ")}
+              >
+                <input
+                  type="radio"
+                  name="confirm-choice"
+                  value={option.value}
+                  checked={choice === option.value}
+                  onChange={() => setChoice(option.value)}
+                  className="mt-1 accent-[var(--accent)]"
+                />
+                <span>
+                  <span className="block font-medium">{option.label}</span>
+                  {option.description && (
+                    <span className="mt-0.5 block text-[12.5px] text-fg-muted">
+                      {option.description}
+                    </span>
+                  )}
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+
         {request.reason && (
           <div className="mt-4">
             <label htmlFor={reasonId} className="block text-[12.5px] font-medium text-fg-muted">
@@ -175,7 +212,7 @@ function ConfirmDialog({
             ref={confirmRef}
             type="button"
             className={btnConfirm[tone]}
-            disabled={reasonMissing}
+            disabled={reasonMissing || choiceMissing}
             onClick={submit}
           >
             {request.confirmLabel}

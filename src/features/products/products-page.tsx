@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useConfirm } from "../../components/use-confirm";
 import { DateSelector } from "../../components/date-selector";
+import { SESSION_STATUS_LABELS } from "../../lib/labels";
+import type { SessionStatus } from "../../stores/sessions-store";
 import { formatIsoDate, formatTimestamp } from "../../lib/format";
 import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
 import {
@@ -23,13 +25,6 @@ const btnPrimary =
   "inline-flex items-center rounded-pill bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-fg transition-[filter] hover:brightness-110 disabled:opacity-45";
 const btnGhost =
   "inline-flex items-center rounded-pill border border-line-strong px-3.5 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg disabled:opacity-45";
-
-const STATUS_LABELS: Record<string, string> = {
-  PLANNED: "Planifiée",
-  COMPLETED: "Terminée",
-  CANCELLED: "Annulée",
-  RESCHEDULED: "Reportée",
-};
 
 const MOVEMENT_LABELS: Record<string, string> = {
   PURCHASE: "Réception",
@@ -862,7 +857,7 @@ function LotDetail({
                   {formatIsoDate(item.date)}
                   {item.bodyArea ? ` · ${item.bodyArea}` : ""}
                   {" · "}
-                  {STATUS_LABELS[item.status] ?? item.status}
+                  {SESSION_STATUS_LABELS[item.status as SessionStatus] ?? item.status}
                   {item.quantity > 0 ? ` · ${item.quantity}` : ""}
                   {item.voidReason ? ` · lien annulé : ${item.voidReason}` : ""}
                 </p>

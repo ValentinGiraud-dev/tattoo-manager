@@ -24,7 +24,9 @@ Trois niveaux. Choisis selon l'effet de l'action, pas selon l'écran.
 - sortir une pièce du stock (terminée, perdue, périmée, renvoyée) ;
 - enregistrer un mouvement de stock manuel (perte, ajustement, retour) ;
 - annuler un mouvement ou un lien ;
-- passer une séance à « Annulée » ou « Reportée » ;
+- passer une séance à « Annulée » ou « Absent » (puis demander le sort de l'acompte en attente : garder, perdu, rembourser) ;
+- déduire un acompte, le déclarer perdu ou remboursé, annuler un acompte, une issue ou un paiement (motif) ;
+- enregistrer une séance sur un créneau déjà occupé (avertissement, pas un blocage) ;
 - utiliser un lot ou un flacon périmé (avertissement explicite, pas un blocage) ;
 - modifier l'identité d'un lot ou le client d'une séance, quand c'est encore permis ;
 - fermer un formulaire qui contient des modifications non enregistrées (« Abandonner les modifications ? »).
