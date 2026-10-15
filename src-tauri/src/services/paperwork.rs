@@ -15,6 +15,8 @@ use sqlx::SqlitePool;
 
 use super::error::LotError;
 use super::sql::NOW;
+use crate::security::files;
+use crate::security::vault::MasterKey;
 
 /// Version des formulaires papier suivis par les structs ci-dessous.
 pub const FORM_VERSION: i64 = 1;
@@ -652,8 +654,10 @@ fn file_error(error: std::io::Error) -> LotError {
     LotError::Invalid("Le fichier n'a pas pu être copié dans le dossier de l'app")
 }
 
+/// Range une copie chiffrée du scan dans `documents/<séance>/`.
 pub async fn attach_document(
     pool: &SqlitePool,
+    key: &MasterKey,
     documents_root: &Path,
     session_id: &str,
     kind: DocumentKind,
@@ -690,7 +694,7 @@ pub async fn attach_document(
     let dir = session_dir(documents_root, session_id)?;
     fs::create_dir_all(&dir).map_err(file_error)?;
     let destination = dir.join(&stored_name);
-    fs::copy(source, &destination).map_err(file_error)?;
+    files::encrypt_file_to(key, source, &destination).map_err(file_error)?;
 
     let sql = format!(
         "INSERT INTO session_documents
@@ -726,7 +730,7 @@ pub async fn get_document(pool: &SqlitePool, id: &str) -> Result<SessionDocument
     .ok_or(LotError::NotFound)
 }
 
-/// Chemin du fichier d'un document joint (pour l'ouvrir).
+/// Chemin du fichier chiffré d'un document joint.
 pub async fn document_path(
     pool: &SqlitePool,
     documents_root: &Path,
@@ -740,6 +744,64 @@ pub async fn document_path(
         ));
     }
     Ok(path)
+}
+
+/// Déchiffre un document dans le dossier temporaire `opened_root` pour l'ouvrir
+/// dans Aperçu. Ce dossier est vidé au verrouillage et au démarrage.
+pub async fn open_document(
+    pool: &SqlitePool,
+    key: &MasterKey,
+    documents_root: &Path,
+    opened_root: &Path,
+    id: &str,
+) -> Result<PathBuf, LotError> {
+    let document = get_document(pool, id).await?;
+    let stored = document_path(pool, documents_root, id).await?;
+    let plain = files::decrypt_file(key, &stored).map_err(|error| {
+        eprintln!("déchiffrement d'un document : {error}");
+        LotError::Invalid("Le fichier de ce document est abîmé et ne peut pas être ouvert")
+    })?;
+    let dir = opened_root.join(&document.id);
+    fs::create_dir_all(&dir).map_err(file_error)?;
+    let path = dir.join(display_file_name(
+        &document.original_name,
+        &document.stored_name,
+    ));
+    fs::write(&path, plain).map_err(file_error)?;
+    Ok(path)
+}
+
+/// Nom lisible pour la copie ouverte : le nom d'origine, sans chemin ni caractère gênant.
+fn display_file_name(original: &str, stored: &str) -> String {
+    let base = Path::new(original)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    let cleaned: String = base
+        .chars()
+        .map(|c| {
+            if c == '/' || c == '\\' || c == ':' || c.is_control() {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let stored_ext = Path::new(stored).extension().and_then(|ext| ext.to_str());
+    let has_ext = Path::new(&cleaned)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+        == stored_ext;
+    match (
+        cleaned.trim().is_empty() || cleaned.starts_with('.'),
+        has_ext,
+    ) {
+        (true, _) => stored.to_string(),
+        (false, true) => cleaned,
+        (false, false) => format!("{cleaned}.{}", stored_ext.unwrap_or("pdf")),
+    }
 }
 
 pub async fn void_document(
@@ -789,11 +851,12 @@ struct IdentityRow {
     email: Option<String>,
 }
 
-/// Écrit le formulaire pré-rempli dans `documents/<séance>/a-imprimer/` et renvoie
-/// son chemin. Sans réponses enregistrées, le formulaire sort avec la seule identité.
+/// Écrit le formulaire pré-rempli dans le dossier temporaire `opened_root/<séance>/`
+/// et renvoie son chemin. Sans réponses enregistrées, le formulaire sort avec la
+/// seule identité. Rien n'est gardé en clair dans le dossier documents.
 pub async fn print_form(
     pool: &SqlitePool,
-    documents_root: &Path,
+    opened_root: &Path,
     studio: &crate::config::StudioSettings,
     session_id: &str,
     kind: FormKind,
@@ -846,17 +909,17 @@ pub async fn print_form(
         LotError::Invalid("Le PDF n'a pas pu être généré")
     })?;
 
-    let dir = session_dir(documents_root, session_id)?.join("a-imprimer");
+    let dir = session_dir(opened_root, session_id)?;
     fs::create_dir_all(&dir).map_err(file_error)?;
     let path = dir.join(file_name);
     fs::write(&path, bytes).map_err(file_error)?;
     Ok(path)
 }
 
-/// Copie la fiche de conseils de cicatrisation dans le dossier documents.
-pub fn aftercare_sheet(documents_root: &Path) -> Result<PathBuf, LotError> {
-    fs::create_dir_all(documents_root).map_err(file_error)?;
-    let path = documents_root.join("conseils-cicatrisation.pdf");
+/// Copie la fiche de conseils de cicatrisation (sans donnée client) pour l'ouvrir.
+pub fn aftercare_sheet(opened_root: &Path) -> Result<PathBuf, LotError> {
+    fs::create_dir_all(opened_root).map_err(file_error)?;
+    let path = opened_root.join("conseils-cicatrisation.pdf");
     fs::write(&path, super::form_pdf::AFTERCARE_PDF).map_err(file_error)?;
     Ok(path)
 }

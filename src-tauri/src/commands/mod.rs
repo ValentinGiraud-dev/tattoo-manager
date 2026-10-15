@@ -1,10 +1,14 @@
-use sqlx::SqlitePool;
+mod security;
+
+pub use security::*;
+
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::config::{AppPaths, AppPathsDto, AppSettings};
+use crate::database::Db;
 use crate::models::{Client, StockMovement};
 use crate::services::billing::{
     self, DepositInput, DepositView, PaymentInput, PaymentView, SessionBilling, SettleDepositInput,
@@ -24,304 +28,292 @@ use crate::services::units::{self, UnitView};
 use crate::{config, services};
 
 #[tauri::command]
-pub async fn database_status(pool: State<'_, SqlitePool>) -> Result<i64, String> {
-    services::applied_migration_count(pool.inner())
+pub async fn database_status(db: State<'_, Db>) -> Result<i64, String> {
+    services::applied_migration_count(&db.pool()?)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_clients(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     search: Option<String>,
 ) -> Result<Vec<Client>, String> {
-    clients::list_clients(pool.inner(), search)
+    clients::list_clients(&db.pool()?, search)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn get_client(pool: State<'_, SqlitePool>, id: String) -> Result<Client, String> {
-    clients::get_client(pool.inner(), &id)
+pub async fn get_client(db: State<'_, Db>, id: String) -> Result<Client, String> {
+    clients::get_client(&db.pool()?, &id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn create_client(
-    pool: State<'_, SqlitePool>,
-    input: ClientInput,
-) -> Result<Client, String> {
-    clients::create_client(pool.inner(), input)
+pub async fn create_client(db: State<'_, Db>, input: ClientInput) -> Result<Client, String> {
+    clients::create_client(&db.pool()?, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn update_client(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     id: String,
     input: ClientInput,
 ) -> Result<Client, String> {
-    clients::update_client(pool.inner(), &id, input)
+    clients::update_client(&db.pool()?, &id, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_sessions(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     search: Option<String>,
 ) -> Result<Vec<SessionListItem>, String> {
-    sessions::list_sessions(pool.inner(), search)
+    sessions::list_sessions(&db.pool()?, search)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn get_session(
-    pool: State<'_, SqlitePool>,
-    id: String,
-) -> Result<SessionListItem, String> {
-    sessions::get_session(pool.inner(), &id)
+pub async fn get_session(db: State<'_, Db>, id: String) -> Result<SessionListItem, String> {
+    sessions::get_session(&db.pool()?, &id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn create_session(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     input: SessionInput,
 ) -> Result<SessionListItem, String> {
-    sessions::create_session(pool.inner(), input)
+    sessions::create_session(&db.pool()?, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn update_session(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     id: String,
     input: SessionInput,
 ) -> Result<SessionListItem, String> {
-    sessions::update_session(pool.inner(), &id, input)
+    sessions::update_session(&db.pool()?, &id, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_lots(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     search: Option<String>,
 ) -> Result<Vec<LotSummary>, String> {
-    lots::list_lots(pool.inner(), search)
+    lots::list_lots(&db.pool()?, search)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn get_lot(pool: State<'_, SqlitePool>, id: String) -> Result<LotSummary, String> {
-    lots::get_lot(pool.inner(), &id)
+pub async fn get_lot(db: State<'_, Db>, id: String) -> Result<LotSummary, String> {
+    lots::get_lot(&db.pool()?, &id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn find_lot(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     name: String,
     lot_number: String,
 ) -> Result<Option<LotSummary>, String> {
-    lots::find_lot(pool.inner(), &name, &lot_number)
+    lots::find_lot(&db.pool()?, &name, &lot_number)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn create_lot(
-    pool: State<'_, SqlitePool>,
-    input: CreateLotInput,
-) -> Result<LotSummary, String> {
-    lots::create_lot(pool.inner(), input)
+pub async fn create_lot(db: State<'_, Db>, input: CreateLotInput) -> Result<LotSummary, String> {
+    lots::create_lot(&db.pool()?, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn update_lot(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     id: String,
     input: UpdateLotInput,
 ) -> Result<LotSummary, String> {
-    lots::update_lot(pool.inner(), &id, input)
+    lots::update_lot(&db.pool()?, &id, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn list_lot_units(
-    pool: State<'_, SqlitePool>,
-    lot_id: String,
-) -> Result<Vec<UnitView>, String> {
-    units::list_units(pool.inner(), &lot_id)
+pub async fn list_lot_units(db: State<'_, Db>, lot_id: String) -> Result<Vec<UnitView>, String> {
+    units::list_units(&db.pool()?, &lot_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn open_unit(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     unit_id: String,
     opened_at: String,
 ) -> Result<UnitView, String> {
-    units::open_unit(pool.inner(), &unit_id, opened_at)
+    units::open_unit(&db.pool()?, &unit_id, opened_at)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn exit_unit(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     unit_id: String,
     movement_type: String,
 ) -> Result<UnitView, String> {
-    units::exit_unit(pool.inner(), &unit_id, &movement_type)
+    units::exit_unit(&db.pool()?, &unit_id, &movement_type)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn record_lot_movement(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     input: RecordMovementInput,
 ) -> Result<LotSummary, String> {
-    lots::record_movement(pool.inner(), input)
+    lots::record_movement(&db.pool()?, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn undo_lot_movement(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     movement_id: String,
 ) -> Result<LotSummary, String> {
-    let lot_id = stock::undo_movement(pool.inner(), &movement_id)
+    let lot_id = stock::undo_movement(&db.pool()?, &movement_id)
         .await
         .map_err(|error| error.to_string())?;
-    lots::get_lot(pool.inner(), &lot_id)
+    lots::get_lot(&db.pool()?, &lot_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_lot_movements(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     lot_id: String,
 ) -> Result<Vec<StockMovement>, String> {
-    stock::list_movements(pool.inner(), &lot_id)
+    stock::list_movements(&db.pool()?, &lot_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_lot_sessions(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     lot_id: String,
 ) -> Result<Vec<LotSessionItem>, String> {
-    session_usages::list_lot_sessions(pool.inner(), &lot_id)
+    session_usages::list_lot_sessions(&db.pool()?, &lot_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_session_usages(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     session_id: String,
 ) -> Result<Vec<SessionUsageItem>, String> {
-    session_usages::list_session_usages(pool.inner(), &session_id)
+    session_usages::list_session_usages(&db.pool()?, &session_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_linkable_usages(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     session_id: String,
     search: Option<String>,
 ) -> Result<Vec<LinkableItem>, String> {
-    session_usages::list_linkable(pool.inner(), &session_id, search)
+    session_usages::list_linkable(&db.pool()?, &session_id, search)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn link_session_usage(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     input: LinkSessionInput,
 ) -> Result<SessionUsageItem, String> {
-    session_usages::link_session(pool.inner(), input)
+    session_usages::link_session(&db.pool()?, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_client_sessions(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     client_id: String,
 ) -> Result<Vec<SessionListItem>, String> {
-    sessions::list_client_sessions(pool.inner(), &client_id)
+    sessions::list_client_sessions(&db.pool()?, &client_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_client_usages(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     client_id: String,
 ) -> Result<Vec<SessionUsageItem>, String> {
-    session_usages::list_client_usages(pool.inner(), &client_id)
+    session_usages::list_client_usages(&db.pool()?, &client_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn void_session_usage(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     input: VoidUsageInput,
 ) -> Result<SessionUsageItem, String> {
-    session_usages::void_usage(pool.inner(), input)
+    session_usages::void_usage(&db.pool()?, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn get_session_paperwork(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     session_id: String,
 ) -> Result<Paperwork, String> {
-    paperwork::get_paperwork(pool.inner(), &session_id)
+    paperwork::get_paperwork(&db.pool()?, &session_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn save_health_form(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     session_id: String,
     answers: HealthAnswers,
 ) -> Result<Paperwork, String> {
-    paperwork::save_health(pool.inner(), &session_id, answers)
+    paperwork::save_health(&db.pool()?, &session_id, answers)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn save_consent_form(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     session_id: String,
     answers: ConsentAnswers,
 ) -> Result<Paperwork, String> {
-    paperwork::save_consent(pool.inner(), &session_id, answers)
+    paperwork::save_consent(&db.pool()?, &session_id, answers)
         .await
         .map_err(|error| error.to_string())
 }
@@ -330,25 +322,25 @@ pub async fn save_consent_form(
 fn open_file(app: &AppHandle, path: &Path) -> Result<(), String> {
     app.opener()
         .open_path(path.to_string_lossy(), None::<&str>)
-        .map_err(|error| {
-            eprintln!("ouverture de fichier : {error}");
-            "Le fichier n'a pas pu être ouvert. Il se trouve dans le dossier documents de l'app."
-                .to_string()
+        .map_err(|_| {
+            // Pas de chemin dans le journal : il peut contenir un nom de client.
+            eprintln!("ouverture de fichier impossible");
+            "Le fichier n'a pas pu être ouvert dans Aperçu.".to_string()
         })
 }
 
 #[tauri::command]
 pub async fn print_session_form(
     app: AppHandle,
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     paths: State<'_, AppPaths>,
     session_id: String,
     kind: FormKind,
 ) -> Result<String, String> {
     let settings = config::load_settings(paths.inner()).unwrap_or_default();
     let path = paperwork::print_form(
-        pool.inner(),
-        &paths.documents,
+        &db.pool()?,
+        &paths.opened,
         &settings.studio,
         &session_id,
         kind,
@@ -361,20 +353,21 @@ pub async fn print_session_form(
 
 #[tauri::command]
 pub fn open_aftercare_sheet(app: AppHandle, paths: State<'_, AppPaths>) -> Result<(), String> {
-    let path = paperwork::aftercare_sheet(&paths.documents).map_err(|error| error.to_string())?;
+    let path = paperwork::aftercare_sheet(&paths.opened).map_err(|error| error.to_string())?;
     open_file(&app, &path)
 }
 
 #[tauri::command]
 pub async fn attach_session_document(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     paths: State<'_, AppPaths>,
     session_id: String,
     kind: DocumentKind,
     source_path: String,
 ) -> Result<SessionDocument, String> {
     paperwork::attach_document(
-        pool.inner(),
+        &db.pool()?,
+        &db.key()?,
         &paths.documents,
         &session_id,
         kind,
@@ -387,48 +380,54 @@ pub async fn attach_session_document(
 #[tauri::command]
 pub async fn open_session_document(
     app: AppHandle,
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     paths: State<'_, AppPaths>,
     document_id: String,
 ) -> Result<(), String> {
-    let path = paperwork::document_path(pool.inner(), &paths.documents, &document_id)
-        .await
-        .map_err(|error| error.to_string())?;
+    let path = paperwork::open_document(
+        &db.pool()?,
+        &db.key()?,
+        &paths.documents,
+        &paths.opened,
+        &document_id,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
     open_file(&app, &path)
 }
 
 #[tauri::command]
 pub async fn void_session_document(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     document_id: String,
     reason: String,
 ) -> Result<SessionDocument, String> {
-    paperwork::void_document(pool.inner(), &document_id, &reason)
+    paperwork::void_document(&db.pool()?, &document_id, &reason)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_sessions_between(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     from: String,
     to: String,
 ) -> Result<Vec<SessionListItem>, String> {
-    sessions::list_sessions_between(pool.inner(), &from, &to)
+    sessions::list_sessions_between(&db.pool()?, &from, &to)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn find_session_overlaps(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     date: String,
     start_time: String,
     duration_minutes: i64,
     exclude_id: Option<String>,
 ) -> Result<Vec<SessionListItem>, String> {
     sessions::find_overlaps(
-        pool.inner(),
+        &db.pool()?,
         &date,
         &start_time,
         duration_minutes,
@@ -440,145 +439,136 @@ pub async fn find_session_overlaps(
 
 #[tauri::command]
 pub async fn list_project_sessions(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     project_id: String,
 ) -> Result<Vec<SessionListItem>, String> {
-    sessions::list_project_sessions(pool.inner(), &project_id)
+    sessions::list_project_sessions(&db.pool()?, &project_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_client_projects(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     client_id: String,
 ) -> Result<Vec<ProjectSummary>, String> {
-    projects::list_client_projects(pool.inner(), &client_id)
+    projects::list_client_projects(&db.pool()?, &client_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn get_project(
-    pool: State<'_, SqlitePool>,
-    id: String,
-) -> Result<ProjectSummary, String> {
-    projects::get_project(pool.inner(), &id)
+pub async fn get_project(db: State<'_, Db>, id: String) -> Result<ProjectSummary, String> {
+    projects::get_project(&db.pool()?, &id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn create_project(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     input: ProjectInput,
 ) -> Result<ProjectSummary, String> {
-    projects::create_project(pool.inner(), input)
+    projects::create_project(&db.pool()?, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn update_project(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     id: String,
     input: ProjectInput,
 ) -> Result<ProjectSummary, String> {
-    projects::update_project(pool.inner(), &id, input)
+    projects::update_project(&db.pool()?, &id, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn list_project_deposits(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     project_id: String,
 ) -> Result<Vec<DepositView>, String> {
-    billing::list_project_deposits(pool.inner(), &project_id)
+    billing::list_project_deposits(&db.pool()?, &project_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn get_session_billing(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     session_id: String,
 ) -> Result<SessionBilling, String> {
-    billing::get_session_billing(pool.inner(), &session_id)
+    billing::get_session_billing(&db.pool()?, &session_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn record_deposit(
-    pool: State<'_, SqlitePool>,
-    input: DepositInput,
-) -> Result<DepositView, String> {
-    billing::record_deposit(pool.inner(), input)
+pub async fn record_deposit(db: State<'_, Db>, input: DepositInput) -> Result<DepositView, String> {
+    billing::record_deposit(&db.pool()?, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn void_deposit(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     deposit_id: String,
     reason: String,
 ) -> Result<DepositView, String> {
-    billing::void_deposit(pool.inner(), &deposit_id, &reason)
+    billing::void_deposit(&db.pool()?, &deposit_id, &reason)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn apply_deposit(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     deposit_id: String,
     session_id: String,
 ) -> Result<DepositView, String> {
-    billing::apply_deposit(pool.inner(), &deposit_id, &session_id)
+    billing::apply_deposit(&db.pool()?, &deposit_id, &session_id)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn settle_deposit(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     input: SettleDepositInput,
 ) -> Result<DepositView, String> {
-    billing::settle_deposit(pool.inner(), input)
+    billing::settle_deposit(&db.pool()?, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn void_deposit_outcome(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     outcome_id: String,
     reason: String,
 ) -> Result<DepositView, String> {
-    billing::void_outcome(pool.inner(), &outcome_id, &reason)
+    billing::void_outcome(&db.pool()?, &outcome_id, &reason)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn record_payment(
-    pool: State<'_, SqlitePool>,
-    input: PaymentInput,
-) -> Result<PaymentView, String> {
-    billing::record_payment(pool.inner(), input)
+pub async fn record_payment(db: State<'_, Db>, input: PaymentInput) -> Result<PaymentView, String> {
+    billing::record_payment(&db.pool()?, input)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn void_payment(
-    pool: State<'_, SqlitePool>,
+    db: State<'_, Db>,
     payment_id: String,
     reason: String,
 ) -> Result<PaymentView, String> {
-    billing::void_payment(pool.inner(), &payment_id, &reason)
+    billing::void_payment(&db.pool()?, &payment_id, &reason)
         .await
         .map_err(|error| error.to_string())
 }
@@ -590,7 +580,10 @@ pub fn get_app_paths(paths: State<'_, AppPaths>) -> AppPathsDto {
 
 #[tauri::command]
 pub fn get_settings(paths: State<'_, AppPaths>) -> Result<AppSettings, String> {
-    config::load_settings(paths.inner()).map_err(|error| error.to_string())
+    config::load_settings(paths.inner()).map_err(|error| {
+        eprintln!("réglages : {error}");
+        "Les réglages n'ont pas pu être lus.".to_string()
+    })
 }
 
 #[tauri::command]
@@ -598,6 +591,15 @@ pub fn update_settings(
     paths: State<'_, AppPaths>,
     settings: AppSettings,
 ) -> Result<AppSettings, String> {
-    config::save_settings(paths.inner(), &settings).map_err(|error| error.to_string())?;
-    Ok(settings)
+    // Sécurité et sauvegardes ont leurs propres commandes : on ne garde ici que
+    // les réglages de l'écran, pour ne pas écraser une date de sauvegarde récente.
+    config::modify_settings(paths.inner(), |current| {
+        current.locale = settings.locale;
+        current.window = settings.window;
+        current.studio = settings.studio;
+    })
+    .map_err(|error| {
+        eprintln!("réglages : {error}");
+        "Les réglages n'ont pas pu être enregistrés.".to_string()
+    })
 }

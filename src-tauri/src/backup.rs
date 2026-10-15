@@ -83,6 +83,18 @@ pub async fn snapshot_database(
     Ok(destination)
 }
 
+/// Vrai si la dernière copie automatique de la base date de plus de 24 h.
+pub fn snapshot_due(backups: &Path) -> bool {
+    let Ok(Some(latest)) = latest_backup(backups, "database", "sqlite") else {
+        return true;
+    };
+    fs::metadata(latest)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_none_or(|age| age.as_secs() > 24 * 3600)
+}
+
 pub fn latest_backup(
     backups: &Path,
     prefix: &str,

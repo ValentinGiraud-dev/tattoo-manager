@@ -32,7 +32,7 @@ cd src-tauri && cargo clippy --all-targets -- -D warnings
 pnpm dist:mac                    # build universel macOS (voir skill tracink-release)
 ```
 
-Données de l'app en local : `~/Library/Application Support/com.tracink.app/` (`database.sqlite`, `backups/`, `photos/`, `documents/`, `settings.json`). Ne jamais travailler sur la base réelle de la tatoueuse : copie-la d'abord.
+Données de l'app en local : `~/Library/Application Support/com.tracink.app/` (`database.sqlite` chiffrée SQLCipher, `vault.json`, `backups/`, `photos/`, `documents/` chiffrés, `settings.json`). Ne jamais travailler sur la base réelle de la tatoueuse : copie-la d'abord. Pour l'ouvrir hors de l'app, il faut la clé maître (voir `security-privacy.mdc`).
 
 ## Architecture en une ligne
 
@@ -41,6 +41,8 @@ React (écran) → store Zustand → invoke("commande") → commands/ (mince) �
 ```
 
 Toute règle métier vit dans `src-tauri/src/services/`. React affiche, collecte et confirme ; il ne décide pas.
+
+La base est fermée tant que l'app est verrouillée : les commandes la demandent à l'état `Db` (`db.pool()?`). Côté React, `SecurityGate` (`src/features/security/`) ne monte l'app qu'après le premier déverrouillage. Chiffrement, Touch ID et sauvegardes : `security-privacy.mdc`.
 
 ## Définition de « terminé »
 
@@ -87,7 +89,9 @@ Ces écarts existent dans le code actuel. Ne pas les copier ; les corriger quand
 - Pas encore de toast de succès : les écritures réussies ne sont signalées que par le rafraîchissement de l'écran.
 - Quatre écrans appellent `setState` dans un `useEffect` (avertissement ESLint `react-hooks/set-state-in-effect`, passé en `warn` en attendant).
 - Les classes de boutons et champs sont recopiées en tête de chaque écran ancien : utiliser `src/components/styles.ts`.
-- Base SQLite et dossier `documents/` non chiffrés alors qu'ils contiennent des données de santé (voir `security-privacy.mdc`).
+- Code Touch ID et Trousseau (`security/biometry.rs`, `macos/touch_id.m`) compilé seulement sur macOS : seul le job CI `macos` le vérifie.
+- Pas de rotation de la clé maître : changer le mot de passe ne rechiffre pas les données (voir `security-privacy.mdc`).
+- Pas encore d'export CSV.
 - Navigation entre écrans limitée aux séances (`useUIStore().openSession` / `newSession`). Pas encore d'historique « Précédent ».
 - Pas encore de journal d'audit générique (`audit_log`) : seules les annulations de liens et les mouvements de stock gardent une trace motivée.
 - Tables `products` et `session_products` conservées mais inutilisées depuis la migration 006.

@@ -34,7 +34,7 @@ Suis les étapes dans l'ordre. Ne passe pas à l'UI tant que le backend et ses t
 
 ## 4. Commande Tauri
 
-- Fonction mince dans `commands/mod.rs`, ajoutée à `generate_handler!` dans `lib.rs`.
+- Fonction mince dans `commands/mod.rs`, ajoutée à `generate_handler!` dans `lib.rs`. Base : `db: State<'_, Db>` et `&db.pool()?`. Fichier client : `db.key()?` et `security::files` (jamais de fichier en clair dans `documents/`).
 - Nouvelle permission ou plugin → `capabilities/default.json`, permission minimale.
 
 ## 5. Store et types

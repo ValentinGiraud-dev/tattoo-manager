@@ -22,6 +22,11 @@ export type ConfirmOptions = {
   choices?: { value: string; label: string; description?: string }[];
   /** Option présélectionnée. Sans valeur, le choix est obligatoire. */
   defaultChoice?: string;
+  /**
+   * Confirmation renforcée : ce mot doit être recopié pour activer le bouton
+   * (restaurer une sauvegarde, remplacer des données en masse).
+   */
+  typeToConfirm?: string;
 };
 
 export type ConfirmResult = { reason: string | null; choice: string | null };

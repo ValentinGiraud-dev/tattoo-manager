@@ -67,26 +67,33 @@ function ConfirmDialog({
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const typedRef = useRef<HTMLInputElement>(null);
+  const typedId = useId();
   const [reason, setReason] = useState("");
+  const [typed, setTyped] = useState("");
   const tone = request.tone ?? "default";
   const [choice, setChoice] = useState<string | null>(request.defaultChoice ?? null);
   const reasonMissing = request.reason?.required === true && reason.trim() === "";
   const choiceMissing = (request.choices?.length ?? 0) > 0 && choice === null;
+  const typedMissing =
+    request.typeToConfirm !== undefined &&
+    typed.trim().toLocaleUpperCase("fr-FR") !== request.typeToConfirm.toLocaleUpperCase("fr-FR");
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     if (request.reason) reasonRef.current?.focus();
+    else if (request.typeToConfirm) typedRef.current?.focus();
     else if (tone === "danger") cancelRef.current?.focus();
     else confirmRef.current?.focus();
     return () => previous?.focus?.();
-  }, [request.reason, tone]);
+  }, [request.reason, request.typeToConfirm, tone]);
 
   function submit() {
     if (reasonMissing) {
       reasonRef.current?.focus();
       return;
     }
-    if (choiceMissing) return;
+    if (choiceMissing || typedMissing) return;
     onClose({ reason: request.reason ? reason.trim() || null : null, choice });
   }
 
@@ -204,6 +211,30 @@ function ConfirmDialog({
           </div>
         )}
 
+        {request.typeToConfirm && (
+          <div className="mt-4">
+            <label htmlFor={typedId} className="block text-[12.5px] font-medium text-fg-muted">
+              Pour confirmer, tapez{" "}
+              <span className="font-mono text-fg">{request.typeToConfirm}</span>
+            </label>
+            <input
+              id={typedId}
+              ref={typedRef}
+              value={typed}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => setTyped(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submit();
+                }
+              }}
+              className="mt-1.5 w-full rounded-md border border-line-strong bg-bg px-3 py-2 font-mono text-[14px] text-fg outline-none focus:border-accent"
+            />
+          </div>
+        )}
+
         <div className="mt-5 flex justify-end gap-2">
           <button ref={cancelRef} type="button" className={btnCancel} onClick={() => onClose(null)}>
             {request.cancelLabel ?? "Annuler"}
@@ -212,7 +243,7 @@ function ConfirmDialog({
             ref={confirmRef}
             type="button"
             className={btnConfirm[tone]}
-            disabled={reasonMissing || choiceMissing}
+            disabled={reasonMissing || choiceMissing || typedMissing}
             onClick={submit}
           >
             {request.confirmLabel}

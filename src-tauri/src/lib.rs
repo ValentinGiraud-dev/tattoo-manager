@@ -2,7 +2,9 @@ mod backup;
 mod commands;
 mod config;
 mod database;
+mod external_backup;
 pub mod models;
+mod security;
 mod services;
 
 use std::fs;
@@ -53,20 +55,28 @@ pub fn run() {
                 return Err(err);
             }
 
-            match database::init(&paths, &version) {
-                Ok(pool) => {
-                    app.manage(paths);
-                    app.manage(pool);
-                    Ok(())
-                }
-                Err(err) => {
-                    let message = with_report(&paths, &err.to_string());
-                    show_startup_error(app.handle(), &message);
-                    Err(err)
-                }
-            }
+            // La base est chiffrée : elle n'est ouverte qu'au déverrouillage.
+            app.manage(paths);
+            app.manage(database::Db::default());
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_security_status,
+            commands::setup_security,
+            commands::unlock_with_password,
+            commands::unlock_with_recovery_key,
+            commands::unlock_with_touch_id,
+            commands::lock_app,
+            commands::change_password,
+            commands::renew_recovery_key,
+            commands::set_touch_id,
+            commands::set_auto_lock,
+            commands::run_backup,
+            commands::run_backup_if_due,
+            commands::set_backup_folder,
+            commands::get_backup_settings,
+            commands::list_backups,
+            commands::restore_backup,
             commands::database_status,
             commands::list_clients,
             commands::get_client,
@@ -122,8 +132,19 @@ pub fn run() {
             commands::get_settings,
             commands::update_settings,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Dernière sauvegarde si quelque chose a changé, puis fermeture propre.
+                if let (Some(db), Some(paths)) = (
+                    app.try_state::<database::Db>(),
+                    app.try_state::<config::AppPaths>(),
+                ) {
+                    tauri::async_runtime::block_on(commands::on_exit(app, &db, &paths));
+                }
+            }
+        });
 }
 
 fn with_report(paths: &config::AppPaths, message: &str) -> String {

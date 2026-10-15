@@ -1,7 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { btnPrimary, cardClass, fieldClass, labelClass } from "../../components/styles";
 import { useUnsavedChanges } from "../../components/unsaved-changes";
+import { useSecurityStore } from "../../stores/security-store";
 import { useSettingsStore, type AppSettings } from "../../stores/settings-store";
+import { BackupSection } from "./backup-section";
+import { SecuritySection } from "./security-section";
 
 function StudioForm({ settings }: { settings: AppSettings }) {
   const updateSettings = useSettingsStore((state) => state.updateSettings);
@@ -82,6 +85,7 @@ function StudioForm({ settings }: { settings: AppSettings }) {
 
 export default function SettingsPage() {
   const { settings, paths, loaded, error } = useSettingsStore();
+  const securityStatus = useSecurityStore((state) => state.status);
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-5 px-8 py-10">
@@ -93,15 +97,20 @@ export default function SettingsPage() {
       ) : (
         <StudioForm settings={settings} />
       )}
+      {securityStatus && <SecuritySection status={securityStatus} />}
+      <BackupSection />
       {paths && (
         <section className={`${cardClass} flex flex-col gap-2 p-4`}>
-          <h2 className="text-[14px] font-medium">Données</h2>
+          <h2 className="text-[14px] font-medium">Données sur ce Mac</h2>
+          <p className="text-[12.5px] text-fg-muted">
+            Chiffrées : ces fichiers ne s’ouvrent pas sans Tracink et son mot de passe.
+          </p>
           <dl className="grid gap-2 text-[12.5px]">
             {(
               [
                 ["Base", paths.database],
                 ["Documents", paths.documents],
-                ["Sauvegardes", paths.backups],
+                ["Copies auto.", paths.backups],
               ] as const
             ).map(([label, path]) => (
               <div key={label} className="grid grid-cols-[7rem_1fr] gap-3">

@@ -19,6 +19,7 @@ function App() {
     void load();
   }, [load]);
 
+  // Fournisseur propre à l'app : ses dialogues restent masqués avec elle quand l'app est verrouillée.
   return (
     <ConfirmProvider>
       <AppShell>

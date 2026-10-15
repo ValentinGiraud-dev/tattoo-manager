@@ -8,7 +8,8 @@ alwaysApply: false
 
 ## Couches
 
-- `commands/` : une fonction `#[tauri::command]` par action, sans logique. Elle appelle un service et convertit l'erreur en `String`.
+- `commands/` : une fonction `#[tauri::command]` par action, sans logique. Elle appelle un service et convertit l'erreur en `String`. La base vient de l'état `Db` : `db: State<'_, Db>` puis `services::x(&db.pool()?, …)` (erreur « verrouillé » si l'app l'est). Jamais `State<'_, SqlitePool>`.
+- `security/` (coffre de clés, fichiers chiffrés, Touch ID), `database/` (ouverture SQLCipher, conversion, état `Db`), `external_backup.rs` (sauvegardes externes, restauration). Voir `security-privacy.mdc`.
 - `services/` : validation, règles métier, SQL. Un fichier par domaine.
 - `models/` : structs `sqlx::FromRow` + `serde(rename_all = "camelCase")`.
 - `services/sql.rs` : helpers partagés (`NOW`, `clean`, `is_iso_date`, `like_pattern`). Ne pas les recopier.

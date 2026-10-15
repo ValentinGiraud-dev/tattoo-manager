@@ -30,4 +30,4 @@ cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings &
 
 ## Données
 
-Base et sauvegardes : `~/Library/Application Support/com.tracink.app/`. L'app copie la base avant chaque migration (dans `backups/`, 10 copies au plus).
+Base et sauvegardes : `~/Library/Application Support/com.tracink.app/`. Base et documents sont chiffrés (mot de passe de l'app, clé de secours ou Touch ID). L'app copie la base avant chaque migration (dans `backups/`, 10 copies au plus) et fait des sauvegardes complètes chiffrées dans le dossier choisi dans Paramètres.

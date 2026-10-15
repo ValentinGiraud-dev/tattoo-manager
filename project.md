@@ -699,10 +699,10 @@ L'application pourra contenir des données personnelles sensibles.
 
 Il faudra donc prévoir progressivement :
 
-- contrôle d'accès ;
-- verrouillage de l'application ;
-- protection des fichiers ;
-- sauvegardes sécurisées ;
+- contrôle d'accès ; *(fait : mot de passe, clé de secours, Touch ID)*
+- verrouillage de l'application ; *(fait : automatique après inactivité, ⌘L)*
+- protection des fichiers ; *(fait : base SQLCipher, documents chiffrés)*
+- sauvegardes sécurisées ; *(fait : sauvegardes externes chiffrées)*
 - limitation des données stockées ;
 - journalisation des opérations importantes.
 
@@ -959,12 +959,14 @@ La roadmap est indicative et pourra changer.
 
 
 
-## Phase 7 — Sauvegardes
+## Phase 7 — Sauvegardes et sécurité
 
-- [ ] Backup manuel
-- [ ] Restauration
-- [ ] Export
-- [ ] Backup automatique
+- [x] Backup manuel (« Sauvegarder maintenant », dossier au choix : iCloud Drive, disque externe…)
+- [x] Restauration (vérifiée avant, données remplacées mises de côté)
+- [ ] Export (CSV)
+- [x] Backup automatique (quotidien, au verrouillage, à la fermeture si changement ; 30 gardés)
+- [x] Chiffrement de la base (SQLCipher) et des documents
+- [x] Verrouillage : mot de passe, clé de secours, Touch ID, verrouillage automatique
 
 
 

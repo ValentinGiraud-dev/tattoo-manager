@@ -31,7 +31,7 @@ Trois niveaux. Choisis selon l'effet de l'action, pas selon l'écran.
 - modifier l'identité d'un lot ou le client d'une séance, quand c'est encore permis ;
 - fermer un formulaire qui contient des modifications non enregistrées (« Abandonner les modifications ? »).
 
-**Confirmation renforcée pour :** restaurer une sauvegarde, importer des données qui remplacent l'existant, anonymiser ou effacer un client.
+**Confirmation renforcée pour :** restaurer une sauvegarde, importer des données qui remplacent l'existant, anonymiser ou effacer un client. Avec `useConfirm`, option `typeToConfirm: "RESTAURER"` (le bouton reste inactif tant que le mot n'est pas recopié).
 
 **Contenu d'un dialogue :**
 

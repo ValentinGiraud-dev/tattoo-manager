@@ -10,7 +10,7 @@ Tracink contient des données personnelles et, avec les questionnaires, des donn
 ## Données
 
 - Collecter seulement ce qui sert. Un nouveau champ client ou santé doit avoir un usage clair.
-- Données dans le dossier de l'app (`AppPaths`) uniquement. Jamais dans le dépôt, `/tmp`, `localStorage` ou un fichier exporté sans action explicite de l'utilisatrice.
+- Données dans le dossier de l'app (`AppPaths`) uniquement. Jamais dans le dépôt, `/tmp`, `localStorage` ou un fichier exporté sans action explicite de l'utilisatrice. Seule exception : `AppPaths.opened` (copies en clair ouvertes dans Aperçu ou à imprimer), vidé au verrouillage, à la fermeture et au démarrage.
 - Exports (PDF, CSV) : seulement à la demande, avec dialogue d'enregistrement, et en le signalant à l'écran.
 - Pas de suppression physique des données tracées. Une demande d'effacement passera par une anonymisation documentée, à concevoir avec la tatoueuse.
 - Durées de conservation : ne pas les inventer. Les rendre paramétrables et demander.
@@ -26,10 +26,31 @@ Tracink contient des données personnelles et, avec les questionnaires, des donn
 - Pas de télémétrie, d'analytics, de police ou script chargé depuis Internet à l'exécution.
 - CSP à définir dans `tauri.conf.json` (aujourd'hui `null`) quand on y touche : `default-src 'self'`.
 
+## Chiffrement et verrouillage
+
+Tout est chiffré au repos ; rien n'est lisible sans le mot de passe de l'app, la clé de secours ou Touch ID.
+
+| Élément | Protection | Code |
+| --- | --- | --- |
+| Clé maître | 32 octets aléatoires, jamais écrits en clair. `vault.json` en garde deux enveloppes XChaCha20-Poly1305 : mot de passe (Argon2id 64 Mio, 3 passes) et clé de secours (24 caractères base32 Crockford). | `security/vault.rs` |
+| Base | SQLCipher (AES-256), clé maître brute en `PRAGMA key`. Copies `VACUUM INTO` chiffrées elles aussi. | `database/mod.rs` |
+| Documents, photos | `TRACINK-ENC1\n` + nonce + XChaCha20-Poly1305, clé dérivée de la clé maître. | `security/files.rs` |
+| Touch ID | LocalAuthentication, puis copie de la clé maître dans le Trousseau de session (service `com.tracink.app`). Le mot de passe reste la protection de référence : l'élément du Trousseau n'est pas lié à la biométrie (il faudrait une app signée avec un identifiant d'équipe Apple). | `security/biometry.rs`, `macos/touch_id.m` |
+
+- Au démarrage la base est fermée. `Db` (état Tauri) la donne aux commandes : `let pool = db.pool()?` renvoie « Tracink est verrouillé » tant qu'elle n'est pas ouverte. Une commande qui lit ou écrit un fichier chiffré prend aussi `db.key()?`.
+- Ne jamais écrire un fichier client en clair dans `documents/` ou `photos/` : passer par `files::encrypt_file_to`. Pour l'ouvrir, déchiffrer dans `AppPaths.opened`.
+- Ne jamais journaliser une clé, un mot de passe, une clé de secours, ni un chemin de fichier client (le nom d'origine peut contenir un nom de personne).
+- Verrouillage automatique après inactivité (10 min par défaut), bouton « Verrouiller » et ⌘L. L'écran reste monté mais masqué et inerte : un formulaire en cours n'est pas perdu.
+- Changer le mot de passe ne rechiffre rien (seule l'enveloppe change). Conséquence : une sauvegarde ancienne s'ouvre avec le mot de passe en vigueur à sa date. Si un mot de passe a fuité avec une copie des données, il faudra une rotation de la clé maître (non faite aujourd'hui).
+- Mot de passe et clé de secours perdus = données perdues. C'est voulu ; l'interface le dit à la création.
+- FileVault reste recommandé (protège aussi les fichiers temporaires de macOS).
+
 ## Sauvegardes
 
-- Une sauvegarde contient tout. Elle reste dans le dossier de l'app ou dans un dossier choisi par l'utilisatrice.
-- La base contient désormais des réponses de santé et le dossier `documents/` des documents signés. Chiffrement de la base et des documents, et verrouillage de l'app : prochaine priorité sécurité. En attendant, FileVault doit être actif sur le Mac.
+- Copies locales (`backups/`) : base chiffrée avant chaque migration ou au plus une fois par jour, 10 au plus. Elles s'ouvrent avec la clé de `vault.json`.
+- Sauvegardes externes (`external_backup.rs`) dans un dossier choisi par l'utilisatrice : `Tracink-sauvegardes/<AAAA-MM-JJ-HHMMSS>/` avec base, `documents/`, `photos/`, `vault.json` et `manifest.json`. Écrites sous un nom `.partial` puis renommées. Une par jour au plus (au déverrouillage et toutes les 30 min), au verrouillage si la dernière a plus d'une heure, et à la fermeture si le contenu a changé (empreinte Blake2b du contenu, les octets chiffrés changeant à chaque copie). 30 gardées.
+- Restaurer : la sauvegarde est vérifiée en entier (clé, intégrité, chaque document) avant de toucher aux données. Les données remplacées sont déplacées dans `avant-restauration-<horodatage>/`, jamais supprimées. Une sauvegarde d'une version plus récente de l'app est refusée.
+- Une sauvegarde ne contient rien en clair. Ne jamais ajouter de fichier en clair dans une sauvegarde.
 
 ## Secrets
 

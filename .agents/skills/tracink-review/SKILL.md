@@ -44,6 +44,9 @@ Lis le diff (`git diff` et `git diff --staged`, plus les fichiers non suivis). P
 - [ ] Pas de donnée personnelle ou de santé dans un log ou un message technique.
 - [ ] Pas de nouvelle requête réseau. Permissions Tauri minimales.
 - [ ] Pas de secret, base, sauvegarde ou donnée client dans le commit.
+- [ ] Commandes : base via `db.pool()?` (état `Db`), jamais `State<'_, SqlitePool>`.
+- [ ] Aucun fichier client écrit en clair hors de `AppPaths.opened` ; documents et photos via `security::files`.
+- [ ] Ni clé, ni mot de passe, ni clé de secours, ni chemin de fichier client dans un log.
 
 ## 6. Hygiène du dépôt
 

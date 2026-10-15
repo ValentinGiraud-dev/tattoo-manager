@@ -10,6 +10,8 @@ use super::paperwork::{
     HealthAnswers, ProfessionalDecision, CONSENT_LOCKED, HEALTH_LOCKED,
 };
 use crate::config::StudioSettings;
+use crate::security::files;
+use crate::security::vault::MasterKey;
 
 async fn db(birth_date: Option<&str>) -> SqlitePool {
     let options = SqliteConnectOptions::new()
@@ -218,16 +220,44 @@ async fn a_signed_scan_freezes_the_answers_until_it_is_voided() {
         .await
         .unwrap();
 
+    let key = MasterKey::generate();
     let scan = dir.file("Scan questionnaire.PDF", b"%PDF-1.4 scan");
-    let document =
-        paperwork::attach_document(&pool, &documents, "s1", DocumentKind::HealthSigned, &scan)
-            .await
-            .unwrap();
+    let document = paperwork::attach_document(
+        &pool,
+        &key,
+        &documents,
+        "s1",
+        DocumentKind::HealthSigned,
+        &scan,
+    )
+    .await
+    .unwrap();
     assert_eq!(document.original_name, "Scan questionnaire.PDF");
+    // Rangé chiffré…
     let stored = paperwork::document_path(&pool, &documents, &document.id)
         .await
         .unwrap();
-    assert_eq!(std::fs::read(stored).unwrap(), b"%PDF-1.4 scan");
+    let raw = std::fs::read(stored).unwrap();
+    assert!(raw.starts_with(files::MAGIC));
+    assert!(!raw.windows(4).any(|window| window == b"scan"));
+    // … et ouvert en clair dans le dossier temporaire, sous son nom d'origine.
+    let opened = dir.0.join("ouverts");
+    let path = paperwork::open_document(&pool, &key, &documents, &opened, &document.id)
+        .await
+        .unwrap();
+    assert!(path.starts_with(&opened));
+    assert!(path.ends_with("Scan questionnaire.PDF"));
+    assert_eq!(std::fs::read(path).unwrap(), b"%PDF-1.4 scan");
+    // Une autre clé ne l'ouvre pas.
+    assert!(paperwork::open_document(
+        &pool,
+        &MasterKey::generate(),
+        &documents,
+        &opened,
+        &document.id
+    )
+    .await
+    .is_err());
 
     let error = paperwork::save_health(&pool, "s1", complete_health())
         .await
@@ -260,6 +290,7 @@ async fn a_signed_scan_freezes_the_answers_until_it_is_voided() {
 
     paperwork::attach_document(
         &pool,
+        &key,
         &documents,
         "s1",
         DocumentKind::ConsentSigned,
@@ -284,6 +315,7 @@ async fn only_scans_and_photos_are_accepted() {
     ] {
         let error = paperwork::attach_document(
             &pool,
+            &MasterKey::generate(),
             &documents,
             "s1",
             DocumentKind::Other,
@@ -295,6 +327,7 @@ async fn only_scans_and_photos_are_accepted() {
     }
     let error = paperwork::attach_document(
         &pool,
+        &MasterKey::generate(),
         &documents,
         "inconnue",
         DocumentKind::Other,
@@ -311,6 +344,7 @@ async fn a_joined_document_cannot_be_rewritten_in_the_database() {
     let dir = TempDir::new();
     let document = paperwork::attach_document(
         &pool,
+        &MasterKey::generate(),
         &dir.0.join("documents"),
         "s1",
         DocumentKind::Other,
@@ -326,10 +360,10 @@ async fn a_joined_document_cannot_be_rewritten_in_the_database() {
 }
 
 #[tokio::test]
-async fn printing_writes_the_filled_form_in_the_session_folder() {
+async fn printing_writes_the_filled_form_in_the_temporary_folder() {
     let pool = db(Some("1995-04-02")).await;
     let dir = TempDir::new();
-    let documents = dir.0.join("documents");
+    let documents = dir.0.join("ouverts");
     let studio = StudioSettings {
         professional_name: "Camille Durand".into(),
         city: "Lyon".into(),
@@ -338,7 +372,7 @@ async fn printing_writes_the_filled_form_in_the_session_folder() {
     let blank = paperwork::print_form(&pool, &documents, &studio, "s1", FormKind::Consent)
         .await
         .unwrap();
-    assert!(blank.ends_with("s1/a-imprimer/consentement.pdf"));
+    assert!(blank.ends_with("s1/consentement.pdf"));
 
     paperwork::save_health(&pool, "s1", complete_health())
         .await

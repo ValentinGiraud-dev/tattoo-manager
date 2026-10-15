@@ -37,7 +37,7 @@ Montants en centimes (entiers). Les tables d'argent refusent `UPDATE` (sauf l'an
 
 - `clients.address` : optionnelle, demandée par le consentement.
 - `session_forms` : `session_id`, `kind` (`HEALTH`, `CONSENT`), `form_version`, `answers` (JSON), `created_at`, `updated_at`. Unique par séance et type. Le JSON suit les structs Rust `HealthAnswers` et `ConsentAnswers` (`services/paperwork.rs`), qui sont la seule définition des questions. `form_version` = version du formulaire papier (`FORM_VERSION`).
-- `session_documents` : `session_id`, `kind` (`HEALTH_SIGNED`, `CONSENT_SIGNED`, `OTHER`), `stored_name`, `original_name`, `size_bytes`, `created_at`, `void_reason`, `voided_at`. Fichier copié dans `documents/<session_id>/`. Ne se supprime pas ; s'annule une fois avec un motif (un trigger refuse toute autre modification).
+- `session_documents` : `session_id`, `kind` (`HEALTH_SIGNED`, `CONSENT_SIGNED`, `OTHER`), `stored_name`, `original_name`, `size_bytes`, `created_at`, `void_reason`, `voided_at`. Fichier copié chiffré dans `documents/<session_id>/` (voir `security-privacy.mdc`). Ne se supprime pas ; s'annule une fois avec un motif (un trigger refuse toute autre modification).
 
 Les questionnaires appartiennent à la séance ; un client n'a pas un questionnaire global.
 
