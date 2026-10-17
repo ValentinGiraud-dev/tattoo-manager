@@ -110,12 +110,13 @@ export function DateSelector({
   );
   const [cursorMonth, setCursorMonth] = useState(() => initialCursor.getMonth());
 
-  useEffect(() => {
-    if (!open) return;
+  /** Ouvre le calendrier sur le mois de la date choisie (ou du jour). */
+  function openPicker() {
     const focus = selected ?? new Date();
     setCursorYear(clampYear(focus.getFullYear(), minYear, maxYear));
     setCursorMonth(focus.getMonth());
-  }, [open, selected, minYear, maxYear]);
+    setOpen(true);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -190,7 +191,7 @@ export function DateSelector({
   function onTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      setOpen(true);
+      openPicker();
     }
   }
 
@@ -205,7 +206,7 @@ export function DateSelector({
           disabled={disabled}
           aria-haspopup="dialog"
           aria-expanded={open}
-          onClick={() => setOpen((prev) => !prev)}
+          onClick={() => (open ? setOpen(false) : openPicker())}
           onKeyDown={onTriggerKeyDown}
           className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md border border-line-strong bg-bg px-3 py-2 text-left text-[14px] text-fg transition-colors outline-none hover:border-accent focus-visible:border-accent active:scale-[0.995] disabled:opacity-45"
         >

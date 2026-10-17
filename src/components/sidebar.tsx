@@ -82,7 +82,8 @@ export function Sidebar() {
               key={item.id}
               type="button"
               onClick={() => {
-                if (item.id !== page) void guardedLeave(() => setPage(item.id));
+                // Même écran : retour à sa liste (utile depuis une fiche).
+                void guardedLeave(() => setPage(item.id));
               }}
               aria-current={active ? "page" : undefined}
               className={[

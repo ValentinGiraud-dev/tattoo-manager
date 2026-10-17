@@ -5,19 +5,15 @@ import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-cha
 import { useClientsStore, type Client, type ClientInput } from "../../stores/clients-store";
 import { ClientHistory } from "./client-history";
 import { ClientProjects } from "./client-projects";
+import { toast } from "../../stores/toast-store";
+import { btnGhost, btnPrimary, fieldClass, labelClass } from "../../components/styles";
+import { BackButton } from "../../components/back-button";
+import { useUIStore } from "../../stores/ui-store";
 
 type View =
   { kind: "list" } | { kind: "form"; client?: Client } | { kind: "detail"; client: Client };
 
 const emptyToNull = (value: string) => (value.trim() === "" ? null : value.trim());
-
-const fieldClass =
-  "mt-1.5 w-full rounded-md border border-line-strong bg-bg px-3 py-2 text-[14px] text-fg outline-none transition-[border-color,box-shadow] placeholder:text-fg-faint focus:border-accent";
-const labelClass = "block text-[12.5px] font-medium text-fg-muted";
-const btnPrimary =
-  "inline-flex items-center rounded-pill bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-fg transition-[filter] hover:brightness-110 disabled:opacity-45";
-const btnGhost =
-  "inline-flex items-center rounded-pill border border-line-strong px-3.5 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg disabled:opacity-45";
 
 function initials(client: Client) {
   return `${client.firstName.charAt(0)}${client.lastName.charAt(0)}`.toUpperCase();
@@ -49,6 +45,7 @@ function ClientForm({ client, onDone }: { client?: Client; onDone: (saved?: Clie
     try {
       const saved = client ? await update(client.id, input) : await create(input);
       setDirty(false);
+      toast.success(client ? "Fiche client enregistrée" : "Client créé");
       onDone(saved);
     } catch (submitError) {
       setError(String(submitError));
@@ -173,13 +170,7 @@ function ClientDetail({
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-5 px-8 py-10">
-      <button
-        type="button"
-        onClick={onBack}
-        className="self-start text-[13px] text-fg-muted hover:text-fg"
-      >
-        ← Clients
-      </button>
+      <BackButton listLabel="Clients" onList={onBack} />
       <div className="flex items-start gap-4">
         <span className="grid size-12 place-items-center rounded-md border border-line bg-surface-2 text-[14px] font-medium text-fg-muted">
           {initials(client)}
@@ -211,8 +202,26 @@ function ClientDetail({
 }
 
 export default function ClientsPage() {
-  const { clients, search, loading, error, load } = useClientsStore();
+  const { clients, search, loading, error, load, get: getClient } = useClientsStore();
   const [view, setView] = useState<View>({ kind: "list" });
+  const clientIntent = useUIStore((state) => state.clientIntent);
+  const takeClientIntent = useUIStore((state) => state.takeClientIntent);
+  const setDetail = useUIStore((state) => state.setDetail);
+  const detailId = view.kind === "detail" ? view.client.id : null;
+
+  // Client demandé depuis un autre écran (séance, accueil…).
+  useEffect(() => {
+    if (!clientIntent) return;
+    const clientId = takeClientIntent();
+    if (!clientId) return;
+    void getClient(clientId)
+      .then((client) => setView({ kind: "detail", client }))
+      .catch(() => setView({ kind: "list" }));
+  }, [clientIntent, takeClientIntent, getClient]);
+
+  useEffect(() => {
+    setDetail(detailId ? { kind: "client", id: detailId } : null);
+  }, [detailId, setDetail]);
 
   useEffect(() => {
     void load("");

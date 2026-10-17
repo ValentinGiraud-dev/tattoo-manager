@@ -335,6 +335,10 @@ SessionDocument
 * L'âge et la majorité se calculent à la date de la séance.
 * Les PDF d'origine sont dans `src-tauri/assets/forms/`. Le pré-remplissage écrit aux coordonnées des formulaires v1 (`services/form_pdf.rs`).
 
+Anciennes tables supprimées (migration 010)
+
+Les tables products et session_products, remplacées par lots, units et session_usages depuis la migration 006, sont supprimées. La migration vérifie d'abord que chaque ancienne fiche a son lot et chaque ancien lien son équivalent ; sinon elle s'arrête sans rien supprimer.
+
 Rendez-vous, projets, acomptes et paiements (migration 009)
 
 Session (ajouts)

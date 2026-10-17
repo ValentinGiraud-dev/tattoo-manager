@@ -12,6 +12,7 @@ import {
   type ProfessionalDecision,
   type YesNo,
 } from "../../stores/paperwork-store";
+import { toast } from "../../stores/toast-store";
 
 type YesNoKey = {
   [K in keyof HealthAnswers]: HealthAnswers[K] extends YesNo ? K : never;
@@ -149,6 +150,7 @@ export function HealthFormView({
       };
       const next = await saveHealth(paperwork.sessionId, cleaned);
       setDirty(false);
+      if (!thenPrint) toast.success("Questionnaire enregistré");
       const missing = next.health?.missing ?? [];
       if (thenPrint) {
         if (missing.length > 0) {

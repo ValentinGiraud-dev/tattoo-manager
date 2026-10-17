@@ -23,8 +23,8 @@ Tracink contient des données personnelles et, avec les questionnaires, des donn
 ## Réseau
 
 - L'app fonctionne hors ligne. Seule requête sortante : l'updater vers les releases GitHub.
-- Pas de télémétrie, d'analytics, de police ou script chargé depuis Internet à l'exécution.
-- CSP à définir dans `tauri.conf.json` (aujourd'hui `null`) quand on y touche : `default-src 'self'`.
+- Pas de télémétrie, d'analytics, de police ou script chargé depuis Internet à l'exécution. Les polices Geist sont embarquées (`@fontsource`, importées dans `main.tsx`).
+- CSP dans `tauri.conf.json` (`csp` pour l'app livrée, `devCsp` pour `pnpm tauri dev`) : `default-src 'self'`, scripts locaux seulement, connexions vers l'IPC Tauri seulement. Toute ressource externe doit d'abord être justifiée ici.
 
 ## Chiffrement et verrouillage
 

@@ -87,6 +87,8 @@ export interface SessionUsageItem {
   sessionId: string;
   lotId: string | null;
   unitId: string | null;
+  /** Lot du produit, que le lien porte sur le lot ou sur une de ses pièces. */
+  lotRef: string;
   createdAt: string;
   name: string;
   lotNumber: string;

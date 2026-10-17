@@ -34,6 +34,7 @@ interface ClientsState {
   load: (search?: string) => Promise<void>;
   create: (input: ClientInput) => Promise<Client>;
   update: (id: string, input: ClientInput) => Promise<Client>;
+  get: (id: string) => Promise<Client>;
   /** Séances du client, de la plus récente à la plus ancienne. */
   listSessions: (clientId: string) => Promise<SessionListItem[]>;
   /** Produits liés aux séances du client, liens annulés compris. */
@@ -64,6 +65,7 @@ export const useClientsStore = create<ClientsState>((set, get) => ({
     await get().load();
     return client;
   },
+  get: (id) => invoke<Client>("get_client", { id }),
   listSessions: (clientId) => invoke<SessionListItem[]>("list_client_sessions", { clientId }),
   listUsages: (clientId) => invoke<SessionUsageItem[]>("list_client_usages", { clientId }),
 }));

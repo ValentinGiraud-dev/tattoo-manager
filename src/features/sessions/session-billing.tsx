@@ -13,6 +13,7 @@ import {
   type SessionBilling as Billing,
 } from "../../stores/billing-store";
 import type { SessionListItem } from "../../stores/sessions-store";
+import { toast } from "../../stores/toast-store";
 
 const STATE_LABELS: Record<BillingState, { label: string; tone: string }> = {
   NO_PRICE: { label: "Prix non renseigné", tone: "bg-surface-3 text-fg-muted" },
@@ -66,11 +67,12 @@ export function SessionBilling({ session }: { session: SessionListItem }) {
     };
   }, [session.id, store]);
 
-  async function run(action: () => Promise<unknown>) {
+  async function run(action: () => Promise<unknown>, success: string) {
     setBusy(true);
     setError(null);
     try {
       await action();
+      toast.success(success);
       setBill(await store.sessionBilling(session.id));
     } catch (actionError) {
       setError(String(actionError));
@@ -99,7 +101,7 @@ export function SessionBilling({ session }: { session: SessionListItem }) {
       confirmLabel: "Déduire l'acompte",
     });
     if (!ok) return;
-    await run(() => store.applyDeposit(deposit.id, session.id));
+    await run(() => store.applyDeposit(deposit.id, session.id), "Acompte déduit de la séance");
   }
 
   async function settleDeposit(deposit: Deposit) {
@@ -120,13 +122,15 @@ export function SessionBilling({ session }: { session: SessionListItem }) {
     });
     if (!result?.choice) return;
     const outcome = result.choice as "FORFEITED" | "REFUNDED";
-    await run(() =>
-      store.settleDeposit({
-        depositId: deposit.id,
-        outcome,
-        sessionId: session.id,
-        reason: result.reason,
-      }),
+    await run(
+      () =>
+        store.settleDeposit({
+          depositId: deposit.id,
+          outcome,
+          sessionId: session.id,
+          reason: result.reason,
+        }),
+      outcome === "FORFEITED" ? "Acompte gardé par l’atelier" : "Remboursement enregistré",
     );
   }
 
@@ -142,7 +146,7 @@ export function SessionBilling({ session }: { session: SessionListItem }) {
     });
     if (!result?.reason) return;
     const reason = result.reason;
-    await run(() => store.voidDeposit(deposit.id, reason));
+    await run(() => store.voidDeposit(deposit.id, reason), "Acompte annulé");
   }
 
   async function voidOutcome(deposit: Deposit) {
@@ -159,7 +163,10 @@ export function SessionBilling({ session }: { session: SessionListItem }) {
     });
     if (!result?.reason) return;
     const reason = result.reason;
-    await run(() => store.voidOutcome(outcomeId, reason));
+    await run(
+      () => store.voidOutcome(outcomeId, reason),
+      "Issue annulée : l’acompte est de nouveau en attente",
+    );
   }
 
   async function voidPayment(payment: Payment) {
@@ -176,7 +183,7 @@ export function SessionBilling({ session }: { session: SessionListItem }) {
     });
     if (!result?.reason) return;
     const reason = result.reason;
-    await run(() => store.voidPayment(payment.id, reason));
+    await run(() => store.voidPayment(payment.id, reason), "Paiement annulé");
   }
 
   return (
@@ -267,6 +274,7 @@ export function SessionBilling({ session }: { session: SessionListItem }) {
               note: draft.note,
             });
             setAdding(null);
+            toast.success("Paiement enregistré");
             setBill(await store.sessionBilling(session.id));
           }}
         />
@@ -313,6 +321,7 @@ export function SessionBilling({ session }: { session: SessionListItem }) {
               note: draft.note,
             });
             setAdding(null);
+            toast.success("Acompte enregistré");
             setBill(await store.sessionBilling(session.id));
           }}
         />

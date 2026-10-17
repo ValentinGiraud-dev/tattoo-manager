@@ -11,6 +11,7 @@ import {
   type GuardianRelation,
   type Paperwork,
 } from "../../stores/paperwork-store";
+import { toast } from "../../stores/toast-store";
 
 type BoxKey = Exclude<keyof ConsentAnswers, "guardian">;
 
@@ -136,6 +137,7 @@ export function ConsentFormView({
     try {
       const next = await saveConsent(paperwork.sessionId, answers);
       setDirty(false);
+      if (!thenPrint) toast.success("Consentement enregistré");
       const missing = next.consent?.missing ?? [];
       if (thenPrint) {
         if (missing.length > 0) {

@@ -23,6 +23,8 @@ mod dashboard_tests;
 #[cfg(test)]
 mod migration_009_tests;
 #[cfg(test)]
+mod migration_010_tests;
+#[cfg(test)]
 mod paperwork_tests;
 #[cfg(test)]
 mod stock_rules_tests;

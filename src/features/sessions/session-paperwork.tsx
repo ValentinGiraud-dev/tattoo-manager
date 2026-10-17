@@ -10,6 +10,7 @@ import {
   type Paperwork,
   type SessionDocument,
 } from "../../stores/paperwork-store";
+import { toast } from "../../stores/toast-store";
 
 const DOCUMENT_LABELS: Record<DocumentKind, string> = {
   HEALTH_SIGNED: "Questionnaire de santé signé",
@@ -104,12 +105,16 @@ export function SessionPaperwork({
     };
   }, [sessionId, store]);
 
-  async function run(action: () => Promise<unknown>, reload = true) {
+  /** `success` : message de confirmation d'une écriture (rechargement des documents). */
+  async function run(action: () => Promise<unknown>, success?: string) {
     setBusy(true);
     setError(null);
     try {
       await action();
-      if (reload) setPaperwork(await store.get(sessionId));
+      if (success) {
+        toast.success(success);
+        setPaperwork(await store.get(sessionId));
+      }
     } catch (actionError) {
       setError(String(actionError));
     } finally {
@@ -145,7 +150,7 @@ export function SessionPaperwork({
       confirmLabel: "Joindre le document",
     });
     if (!ok) return;
-    await run(() => store.attach(sessionId, kind, picked));
+    await run(() => store.attach(sessionId, kind, picked), "Document joint (chiffré)");
   }
 
   async function voidDocument(document: SessionDocument) {
@@ -163,7 +168,7 @@ export function SessionPaperwork({
     });
     if (!result?.reason) return;
     const reason = result.reason;
-    await run(() => store.voidDocument(document.id, reason));
+    await run(() => store.voidDocument(document.id, reason), "Document annulé");
   }
 
   if (error && !paperwork) {
@@ -214,7 +219,7 @@ export function SessionPaperwork({
         <button
           type="button"
           disabled={busy}
-          onClick={() => void run(() => store.print(sessionId, kind), false)}
+          onClick={() => void run(() => store.print(sessionId, kind))}
           className={btnGhost}
         >
           Imprimer
@@ -287,7 +292,7 @@ export function SessionPaperwork({
           <button
             type="button"
             disabled={busy}
-            onClick={() => void run(() => store.openAftercare(), false)}
+            onClick={() => void run(() => store.openAftercare())}
             className={btnGhost}
           >
             Ouvrir la fiche
@@ -336,7 +341,7 @@ export function SessionPaperwork({
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void run(() => store.open(document.id), false)}
+                  onClick={() => void run(() => store.open(document.id))}
                   className={btnGhost}
                 >
                   Ouvrir

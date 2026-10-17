@@ -1,0 +1,30 @@
+import { expect, test } from "./fixtures";
+
+test("un produit périmé s'ouvre depuis l'accueil, et le retour ramène à l'accueil", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: /Encre rouge · lot ER-1/ }).click();
+  await expect(page.getByRole("heading", { name: "Encre rouge" })).toBeVisible();
+  await page.getByRole("button", { name: "← Accueil" }).click();
+  await expect(page.getByRole("heading", { name: "Aujourd’hui" })).toBeVisible();
+});
+
+test("depuis une séance, la fiche client s'ouvre puis on revient à la séance", async ({ page }) => {
+  await page
+    .getByRole("button", { name: /Léa Martin/ })
+    .first()
+    .click();
+  await expect(page.getByRole("button", { name: "← Accueil" })).toBeVisible();
+  await page.getByRole("button", { name: "Léa Martin" }).click();
+
+  await expect(page.getByRole("heading", { name: "Léa Martin" })).toBeVisible();
+  await page.getByRole("button", { name: "← Séances" }).click();
+  await expect(page.getByRole("button", { name: "Modifier" })).toBeVisible();
+  await expect(page.getByText("Léa Martin · 15 octobre 2026")).toBeVisible();
+});
+
+test("le menu ramène toujours à la liste", async ({ page }) => {
+  await page.getByRole("button", { name: /Encre rouge · lot ER-1/ }).click();
+  await page.getByRole("navigation").getByRole("button", { name: "Produits" }).click();
+  await expect(page.getByRole("heading", { name: "Produits" })).toBeVisible();
+});

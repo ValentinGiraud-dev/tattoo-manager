@@ -222,7 +222,7 @@ function itemKey(item: ExpiringItem) {
 function AlertsPanel() {
   const dashboard = useDashboardStore((state) => state.dashboard);
   const openSession = useUIStore((state) => state.openSession);
-  const setPage = useUIStore((state) => state.setPage);
+  const openLot = useUIStore((state) => state.openLot);
   if (!dashboard) return null;
   const { alerts } = dashboard;
   const total = alertCount(alerts);
@@ -242,12 +242,12 @@ function AlertsPanel() {
         <AlertGroup
           title="Produits périmés en stock"
           tone="danger"
-          hint="À sortir du stock dans Produits : ils ne doivent plus servir."
+          hint="À sortir du stock : ils ne doivent plus servir."
         >
           {alerts.expired.map((item) => (
             <AlertItem
               key={itemKey(item)}
-              onClick={() => setPage("products")}
+              onClick={() => openLot(item.lotId)}
               main={productLabel(item)}
               side={`depuis le ${formatIsoDate(item.usefulUntil)}`}
             />
@@ -332,7 +332,7 @@ function AlertsPanel() {
           {alerts.expiringSoon.map((item) => (
             <AlertItem
               key={itemKey(item)}
-              onClick={() => setPage("products")}
+              onClick={() => openLot(item.lotId)}
               main={productLabel(item)}
               side={`jusqu’au ${formatIsoDate(item.usefulUntil)}`}
             />

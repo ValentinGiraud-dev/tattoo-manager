@@ -11,13 +11,15 @@ import {
   type SessionUsageItem,
 } from "../../stores/products-store";
 import { useSessionsStore, type SessionListItem } from "../../stores/sessions-store";
-import { useUIStore } from "../../stores/ui-store";
+import { useUIStore, type SessionIntent } from "../../stores/ui-store";
 import { ConsentFormView } from "./consent-form";
 import { HealthFormView } from "./health-form";
 import { SessionBilling } from "./session-billing";
 import { SessionForm, type SessionDraft } from "./session-form";
 import { SessionPaperwork } from "./session-paperwork";
 import { StatusBadge } from "./session-status";
+import { toast } from "../../stores/toast-store";
+import { BackButton } from "../../components/back-button";
 
 type View =
   | { kind: "list" }
@@ -31,6 +33,7 @@ function clientName(session: SessionListItem) {
 function SessionProducts({ session }: { session: SessionListItem }) {
   const sessionId = session.id;
   const { listSessionUsages, listLinkable, linkToSession, voidUsage } = useProductsStore();
+  const openLot = useUIStore((state) => state.openLot);
   const confirm = useConfirm();
   const [linked, setLinked] = useState<SessionUsageItem[]>([]);
   const [linkable, setLinkable] = useState<LinkableItem[]>([]);
@@ -38,7 +41,9 @@ function SessionProducts({ session }: { session: SessionListItem }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Chargé pour cette séance : pas d'état « chargement » à remettre à la main.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const loading = loadedFor !== sessionId;
   const [linking, setLinking] = useState(false);
 
   async function refreshLinked() {
@@ -53,7 +58,6 @@ function SessionProducts({ session }: { session: SessionListItem }) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     void listSessionUsages(sessionId)
       .then((items) => {
         if (!cancelled) {
@@ -65,7 +69,7 @@ function SessionProducts({ session }: { session: SessionListItem }) {
         if (!cancelled) setError(String(loadError));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadedFor(sessionId);
       });
     return () => {
       cancelled = true;
@@ -129,6 +133,7 @@ function SessionProducts({ session }: { session: SessionListItem }) {
         unitId: item.unitId,
         quantity,
       });
+      toast.success(`${item.name} lié à la séance`);
       await refreshLinked();
       await refreshLinkable();
     } catch (linkError) {
@@ -163,6 +168,7 @@ function SessionProducts({ session }: { session: SessionListItem }) {
     setError(null);
     try {
       await voidUsage(item.id, result.reason);
+      toast.success("Lien annulé");
       await refreshLinked();
       if (pickerOpen) await refreshLinkable();
     } catch (voidError) {
@@ -267,11 +273,13 @@ function SessionProducts({ session }: { session: SessionListItem }) {
             >
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <p
-                    className={`text-[14px] font-medium ${item.voidReason ? "text-fg-muted line-through" : ""}`}
+                  <button
+                    type="button"
+                    onClick={() => openLot(item.lotRef)}
+                    className={`text-left text-[14px] font-medium underline-offset-2 hover:underline ${item.voidReason ? "text-fg-muted line-through" : ""}`}
                   >
                     {item.name}
-                  </p>
+                  </button>
                   <p className="mt-0.5 text-[12.5px] text-fg-muted">
                     Lot {item.lotNumber}
                     {" · "}
@@ -330,6 +338,7 @@ function SessionDetail({
 }) {
   const [form, setForm] = useState<{ kind: FormKind; paperwork: Paperwork } | null>(null);
   const [paperworkVersion, setPaperworkVersion] = useState(0);
+  const openClient = useUIStore((state) => state.openClient);
 
   if (form) {
     const close = () => {
@@ -359,13 +368,7 @@ function SessionDetail({
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-5 px-8 py-10">
-      <button
-        type="button"
-        onClick={onBack}
-        className="self-start text-[13px] text-fg-muted hover:text-fg"
-      >
-        ← Séances
-      </button>
+      <BackButton listLabel="Séances" onList={onBack} />
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
           <div className="mb-2">
@@ -375,7 +378,14 @@ function SessionDetail({
             {session.bodyArea ?? session.projectTitle ?? "Séance"}
           </h1>
           <p className="mt-1 text-[13px] text-fg-muted">
-            {clientName(session)} · {formatIsoDate(session.date)}
+            <button
+              type="button"
+              onClick={() => openClient(session.clientId)}
+              className="underline-offset-2 hover:text-fg hover:underline"
+            >
+              {clientName(session)}
+            </button>{" "}
+            · {formatIsoDate(session.date)}
             {session.startTime ? ` · ${session.startTime}` : ""}
           </p>
         </div>
@@ -418,21 +428,34 @@ export default function SessionsPage() {
   const [view, setView] = useState<View>({ kind: "list" });
   const sessionIntent = useUIStore((state) => state.sessionIntent);
   const takeSessionIntent = useUIStore((state) => state.takeSessionIntent);
+  const setDetail = useUIStore((state) => state.setDetail);
+  const detailId = view.kind === "detail" ? view.session.id : null;
+
+  // Fiche ouverte : retenue pour pouvoir y revenir depuis un autre écran.
+  useEffect(() => {
+    setDetail(detailId ? { kind: "session", id: detailId } : null);
+  }, [detailId, setDetail]);
 
   useEffect(() => {
     void load("");
   }, [load]);
 
-  // Ouverture demandée depuis le planning ou la fiche client.
+  // Nouvelle séance demandée depuis un autre écran : l'état suit la demande
+  // pendant le rendu (pas d'effet), la demande est ensuite effacée.
+  const [seenIntent, setSeenIntent] = useState<SessionIntent | null>(null);
+  if (sessionIntent !== seenIntent) {
+    setSeenIntent(sessionIntent);
+    if (sessionIntent?.kind === "new") {
+      const { date, startTime, clientId, projectId } = sessionIntent;
+      setView({ kind: "form", draft: { date, startTime, clientId, projectId } });
+    }
+  }
+
+  // Ouverture d'une séance existante : il faut la charger.
   useEffect(() => {
     if (!sessionIntent) return;
     const intent = takeSessionIntent();
-    if (!intent) return;
-    if (intent.kind === "new") {
-      const { date, startTime, clientId, projectId } = intent;
-      setView({ kind: "form", draft: { date, startTime, clientId, projectId } });
-      return;
-    }
+    if (!intent || intent.kind === "new") return;
     void getSession(intent.sessionId)
       .then((session) => setView({ kind: "detail", session }))
       .catch(() => setView({ kind: "list" }));

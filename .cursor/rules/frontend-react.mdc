@@ -19,6 +19,19 @@ src/
 └── App.tsx            navigation par ui-store
 ```
 
+## Navigation
+
+- Menu : `setPage(page)`. Un clic remonte l'écran (`visit`) : il repart de sa liste.
+- Ouvrir une fiche depuis un autre écran : `openSession(id)`, `openLot(id)`, `openClient(id)`, `newSession(draft)`. L'écran cible lit la demande (`take…Intent`) puis l'efface.
+- Une fiche signale ce qu'elle affiche avec `setDetail({ kind, id })` ; le bouton retour (`components/back-button.tsx`) ramène à l'écran et à la fiche d'origine, sinon à la liste.
+
+## Retours et tests
+
+- Écriture réussie : `toast.success("Client enregistré")` (`stores/toast-store.ts`). Erreur : dans l'écran, jamais en toast.
+- Logique pure (formats, règles de saisie, stores) : test Vitest à côté du fichier (`*.test.ts`).
+- Parcours d'écran : test Playwright dans `e2e/`, avec le faux backend `e2e/fake-backend.ts` (ajoute les commandes dont l'écran a besoin).
+- `react-hooks/set-state-in-effect` est une erreur : pour charger, poser l'état dans le `.then()` d'une promesse ; pour réagir à un changement de prop ou de store, ajuster l'état pendant le rendu (`if (x !== seen) { setSeen(x); … }`).
+
 Un fichier d'écran qui dépasse ~400 lignes se découpe : liste, détail et formulaire dans des fichiers séparés du même dossier.
 
 ## Appels Tauri

@@ -8,3 +8,7 @@ src-tauri
 Charte.html
 *.md
 *.mdc
+
+# Tests d'écran (Playwright)
+test-results/
+playwright-report/

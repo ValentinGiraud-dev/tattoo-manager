@@ -5,13 +5,13 @@ import { useSecurityStore } from "../../stores/security-store";
 import { useSettingsStore, type AppSettings } from "../../stores/settings-store";
 import { BackupSection } from "./backup-section";
 import { SecuritySection } from "./security-section";
+import { toast } from "../../stores/toast-store";
 
 function StudioForm({ settings }: { settings: AppSettings }) {
   const updateSettings = useSettingsStore((state) => state.updateSettings);
   const [professionalName, setProfessionalName] = useState(settings.studio.professionalName);
   const [city, setCity] = useState(settings.studio.city);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dirty =
     professionalName !== settings.studio.professionalName || city !== settings.studio.city;
@@ -21,13 +21,12 @@ function StudioForm({ settings }: { settings: AppSettings }) {
     event.preventDefault();
     setSaving(true);
     setError(null);
-    setSaved(false);
     try {
       await updateSettings({
         ...settings,
         studio: { professionalName: professionalName.trim(), city: city.trim() },
       });
-      setSaved(true);
+      toast.success("Réglages de l’atelier enregistrés");
     } catch (saveError) {
       setError(String(saveError));
     } finally {
@@ -50,7 +49,6 @@ function StudioForm({ settings }: { settings: AppSettings }) {
           value={professionalName}
           onChange={(event) => {
             setProfessionalName(event.target.value);
-            setSaved(false);
           }}
           placeholder="Prénom Nom"
           className={fieldClass}
@@ -62,7 +60,6 @@ function StudioForm({ settings }: { settings: AppSettings }) {
           value={city}
           onChange={(event) => {
             setCity(event.target.value);
-            setSaved(false);
           }}
           placeholder="Ex. Lyon"
           className={fieldClass}
@@ -73,11 +70,6 @@ function StudioForm({ settings }: { settings: AppSettings }) {
         <button type="submit" disabled={saving || !dirty} className={btnPrimary}>
           {saving ? "Enregistrement…" : "Enregistrer"}
         </button>
-        {saved && !dirty && (
-          <span role="status" className="text-[13px] text-success">
-            Enregistré
-          </span>
-        )}
       </div>
     </form>
   );

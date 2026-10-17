@@ -15,6 +15,7 @@ type History = { sessions: SessionListItem[]; usages: SessionUsageItem[] };
 export function ClientHistory({ clientId }: { clientId: string }) {
   const { listSessions, listUsages } = useClientsStore();
   const openSession = useUIStore((state) => state.openSession);
+  const openLot = useUIStore((state) => state.openLot);
   const [history, setHistory] = useState<History | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,12 +77,14 @@ export function ClientHistory({ clientId }: { clientId: string }) {
                   <ul className="mt-2 flex flex-col gap-1.5 border-l border-line pl-3">
                     {usages.map((usage) => (
                       <li key={usage.id} className="text-[12.5px]">
-                        <span
-                          className={usage.voidReason ? "text-fg-muted line-through" : "text-fg"}
+                        <button
+                          type="button"
+                          onClick={() => openLot(usage.lotRef)}
+                          className={`text-left underline-offset-2 hover:underline ${usage.voidReason ? "text-fg-muted line-through" : "text-fg"}`}
                         >
                           {usage.name} · lot {usage.lotNumber}
                           {usage.singleUse && !usage.voidReason ? ` · ${usage.quantity}` : ""}
-                        </span>
+                        </button>
                         {usage.voidReason && (
                           <span className="text-fg-muted"> · lien annulé : {usage.voidReason}</span>
                         )}

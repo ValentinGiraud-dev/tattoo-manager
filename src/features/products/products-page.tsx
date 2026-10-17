@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useConfirm } from "../../components/use-confirm";
 import { DateSelector } from "../../components/date-selector";
 import { SESSION_STATUS_LABELS } from "../../lib/labels";
@@ -12,19 +12,15 @@ import {
   type StockMovement,
   type UnitView,
 } from "../../stores/products-store";
+import { toast } from "../../stores/toast-store";
+import { btnGhost, btnPrimary, fieldClass, labelClass } from "../../components/styles";
+import { BackButton } from "../../components/back-button";
+import { useUIStore } from "../../stores/ui-store";
 
 type View =
   { kind: "list" } | { kind: "form"; lot?: LotSummary } | { kind: "detail"; lot: LotSummary };
 
 const emptyToNull = (value: string) => (value.trim() === "" ? null : value.trim());
-
-const fieldClass =
-  "mt-1.5 w-full rounded-md border border-line-strong bg-bg px-3 py-2 text-[14px] text-fg outline-none transition-[border-color,box-shadow] placeholder:text-fg-faint focus:border-accent";
-const labelClass = "block text-[12.5px] font-medium text-fg-muted";
-const btnPrimary =
-  "inline-flex items-center rounded-pill bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-fg transition-[filter] hover:brightness-110 disabled:opacity-45";
-const btnGhost =
-  "inline-flex items-center rounded-pill border border-line-strong px-3.5 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg disabled:opacity-45";
 
 const MOVEMENT_LABELS: Record<string, string> = {
   PURCHASE: "Réception",
@@ -101,7 +97,6 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
   const locked = existing != null;
   /** Lot déjà utilisé en séance : son identité est figée (règle vérifiée en Rust). */
   const identityLocked = (lot?.sessionCount ?? 0) > 0;
-  const fieldClassLocked = `${fieldClass} disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-fg-muted`;
   const [submitted, setSubmitted] = useState(false);
   const guardedLeave = useGuardedLeave();
   const dirty =
@@ -155,6 +150,7 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
           productUrl: emptyToNull(productUrl),
         });
         setSubmitted(true);
+        toast.success("Lot enregistré");
         onDone(saved);
         return;
       }
@@ -175,6 +171,7 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
         quantity: qty,
       });
       setSubmitted(true);
+      toast.success("Lot ajouté au stock");
       onDone(saved);
     } catch (submitError) {
       setError(String(submitError));
@@ -227,7 +224,7 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
           onBlur={() => void lookup()}
           disabled={identityLocked}
           placeholder="Ex. Encre noire, aiguille 3RL"
-          className={fieldClassLocked}
+          className={fieldClass}
         />
       </label>
 
@@ -242,7 +239,7 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
           }}
           onBlur={() => void lookup()}
           disabled={identityLocked}
-          className={fieldClassLocked}
+          className={fieldClass}
         />
         <p className="mt-1.5 text-[12.5px] text-fg-muted">
           Une boîte qui mélange plusieurs tailles se saisit en un lot par taille, avec le même
@@ -321,7 +318,7 @@ function LotForm({ lot, onDone }: { lot?: LotSummary; onDone: (saved?: LotSummar
             onChange={(event) => setAfterOpeningMonths(event.target.value)}
             disabled={locked || identityLocked}
             placeholder="Ex. 12"
-            className={fieldClassLocked}
+            className={fieldClass}
           />
         </label>
       )}
@@ -418,6 +415,7 @@ function MovementForm({ lot, onSaved }: { lot: LotSummary; onSaved: (lot: LotSum
         reason: emptyToNull(reason),
       });
       setReason("");
+      toast.success("Mouvement enregistré");
       onSaved(saved);
     } catch (submitError) {
       setError(String(submitError));
@@ -486,51 +484,61 @@ function LotDetail({
 }) {
   const { listSessions, listUnits, listMovements, openUnit, exitUnit, undoMovement, get } =
     useProductsStore();
+  const openSession = useUIStore((state) => state.openSession);
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [sessions, setSessions] = useState<LotSessionItem[]>([]);
   const [units, setUnits] = useState<UnitView[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const loading = loadedFor !== lot.id;
   const [openDates, setOpenDates] = useState<Record<string, string | null>>({});
   const currentYear = new Date().getFullYear();
 
-  async function refresh(next = lot) {
-    const [sessionItems, unitItems, movementItems] = await Promise.all([
-      listSessions(next.id),
-      listUnits(next.id),
-      listMovements(next.id),
-    ]);
-    setSessions(sessionItems);
-    setUnits(unitItems);
-    setMovements(movementItems);
-    setOpenDates((current) => {
-      const dates = { ...current };
-      for (const unit of unitItems) {
-        if (dates[unit.id] === undefined) dates[unit.id] = unit.openedAt;
-      }
-      return dates;
-    });
+  const fetchLot = useCallback(
+    (lotId: string) => Promise.all([listSessions(lotId), listUnits(lotId), listMovements(lotId)]),
+    [listSessions, listUnits, listMovements],
+  );
+
+  const apply = useCallback(
+    ([sessionItems, unitItems, movementItems]: Awaited<ReturnType<typeof fetchLot>>) => {
+      setSessions(sessionItems);
+      setUnits(unitItems);
+      setMovements(movementItems);
+      setOpenDates((current) => {
+        const dates = { ...current };
+        for (const unit of unitItems) {
+          if (dates[unit.id] === undefined) dates[unit.id] = unit.openedAt;
+        }
+        return dates;
+      });
+    },
+    [],
+  );
+
+  async function refresh(lotId: string) {
+    apply(await fetchLot(lotId));
   }
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    void refresh()
-      .then(() => {
-        if (!cancelled) setError(null);
+    fetchLot(lot.id)
+      .then((data) => {
+        if (cancelled) return;
+        apply(data);
+        setError(null);
       })
       .catch((loadError: unknown) => {
         if (!cancelled) setError(String(loadError));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadedFor(lot.id);
       });
     return () => {
       cancelled = true;
     };
-  }, [listMovements, listSessions, listUnits, lot.id]);
+  }, [apply, fetchLot, lot.id]);
 
   async function run(action: () => Promise<void>) {
     setError(null);
@@ -539,7 +547,7 @@ function LotDetail({
       await action();
       const next = await get(lot.id);
       onChange(next);
-      await refresh(next);
+      await refresh(next.id);
     } catch (actionError) {
       setError(String(actionError));
     } finally {
@@ -565,6 +573,7 @@ function LotDetail({
     if (!ok) return;
     await run(async () => {
       await exitUnit(unit.id, type);
+      toast.success("Pièce sortie du stock");
     });
   }
 
@@ -579,6 +588,7 @@ function LotDetail({
     if (!ok) return;
     await run(async () => {
       await undoMovement(movementId);
+      toast.success("Pièce remise en stock");
     });
   }
 
@@ -602,6 +612,7 @@ function LotDetail({
     if (!ok) return;
     await run(async () => {
       await undoMovement(movement.id);
+      toast.success("Mouvement annulé");
     });
   }
 
@@ -619,13 +630,7 @@ function LotDetail({
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-5 px-8 py-10">
-      <button
-        type="button"
-        onClick={onBack}
-        className="self-start text-[13px] text-fg-muted hover:text-fg"
-      >
-        ← Produits
-      </button>
+      <BackButton listLabel="Produits" onList={onBack} />
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
           <p className="mb-1 text-[12px] text-fg-faint">
@@ -665,7 +670,7 @@ function LotDetail({
           lot={lot}
           onSaved={(saved) => {
             onChange(saved);
-            void refresh(saved);
+            void refresh(saved.id);
           }}
         />
       ) : (
@@ -750,7 +755,8 @@ function LotDetail({
                                 }
                                 void run(async () => {
                                   await openUnit(unit.id, date);
-                                  await refresh();
+                                  toast.success("Ouverture enregistrée");
+                                  await refresh(lot.id);
                                 });
                               }}
                             >
@@ -850,9 +856,13 @@ function LotDetail({
                 key={`${item.sessionId}-${item.unitId ?? item.lotId}-${item.createdAt}`}
                 className={index > 0 ? "border-t border-line px-4 py-3" : "px-4 py-3"}
               >
-                <p className="text-[14px] font-medium">
+                <button
+                  type="button"
+                  onClick={() => openSession(item.sessionId)}
+                  className="text-left text-[14px] font-medium underline-offset-2 hover:underline"
+                >
                   {item.clientFirstName} {item.clientLastName}
-                </p>
+                </button>
                 <p className="mt-0.5 text-[12.5px] text-fg-muted">
                   {formatIsoDate(item.date)}
                   {item.bodyArea ? ` · ${item.bodyArea}` : ""}
@@ -871,8 +881,26 @@ function LotDetail({
 }
 
 export default function ProductsPage() {
-  const { lots, search, loading, error, load } = useProductsStore();
+  const { lots, search, loading, error, load, get: getLot } = useProductsStore();
   const [view, setView] = useState<View>({ kind: "list" });
+  const lotIntent = useUIStore((state) => state.lotIntent);
+  const takeLotIntent = useUIStore((state) => state.takeLotIntent);
+  const setDetail = useUIStore((state) => state.setDetail);
+  const detailId = view.kind === "detail" ? view.lot.id : null;
+
+  // Lot demandé depuis un autre écran (accueil, séance, fiche client).
+  useEffect(() => {
+    if (!lotIntent) return;
+    const lotId = takeLotIntent();
+    if (!lotId) return;
+    void getLot(lotId)
+      .then((lot) => setView({ kind: "detail", lot }))
+      .catch(() => setView({ kind: "list" }));
+  }, [lotIntent, takeLotIntent, getLot]);
+
+  useEffect(() => {
+    setDetail(detailId ? { kind: "lot", id: detailId } : null);
+  }, [detailId, setDetail]);
 
   useEffect(() => {
     void load("");

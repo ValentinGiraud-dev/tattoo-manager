@@ -77,7 +77,7 @@ Chaque écran qui charge des données gère les quatre états :
 
 ## 3. Retours après action
 
-- Toast court (≈ 3 s) pour un succès : « Client enregistré ». Pas de toast pour une simple navigation.
+- Toast court (≈ 3 s) pour un succès : « Client enregistré » (`toast.success`, `src/stores/toast-store.ts`). Pas de toast pour une simple navigation.
 - Erreur de validation : sous le champ concerné, pas en toast.
 - Erreur serveur Rust : bandeau dans le formulaire ou le dialogue, la saisie reste en place.
 - Pendant l'envoi : bouton désactivé, libellé en cours (« Enregistrement… »). Empêcher le double clic et la double soumission.

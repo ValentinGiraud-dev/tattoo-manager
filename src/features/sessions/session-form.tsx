@@ -15,6 +15,7 @@ import {
   type SessionListItem,
   type SessionStatus,
 } from "../../stores/sessions-store";
+import { toast } from "../../stores/toast-store";
 
 const DURATIONS = [30, 45, 60, 90, 120, 150, 180, 210, 240, 300, 360, 420, 480];
 const DEFAULT_DURATION = 120;
@@ -252,6 +253,7 @@ export function SessionForm({
       ) {
         await settleHeldDeposits(saved);
       }
+      toast.success(session ? "Séance enregistrée" : "Séance créée");
       onDone(saved);
     } catch (submitError) {
       setError(String(submitError));

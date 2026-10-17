@@ -41,6 +41,8 @@ Montants en centimes (entiers). Les tables d'argent refusent `UPDATE` (sauf l'an
 
 Les questionnaires appartiennent à la séance ; un client n'a pas un questionnaire global.
 
+Les anciennes tables `products` et `session_products` (avant la migration 006) ont été supprimées par la migration 010, après vérification que tout avait été recopié dans les lots.
+
 ## Stock
 
 - Usage unique : le stock du lot est `SUM(quantity)`. « Boîte de 50 » est un `PURCHASE` de +50. Lier le lot à une séance écrit un `CONSUMPTION` de −N. Relier le même lot ajoute un mouvement, sans dupliquer le lien. Un mouvement qui passerait sous zéro est refusé.

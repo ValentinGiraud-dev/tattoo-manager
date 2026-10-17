@@ -13,6 +13,8 @@ pub struct SessionUsageItem {
     pub session_id: String,
     pub lot_id: Option<String>,
     pub unit_id: Option<String>,
+    /// Lot du produit, que le lien porte sur le lot ou sur une de ses pièces.
+    pub lot_ref: String,
     pub created_at: String,
     pub name: String,
     pub lot_number: String,
@@ -108,6 +110,7 @@ SELECT
     su.session_id,
     su.lot_id,
     su.unit_id,
+    l.id AS lot_ref,
     su.created_at,
     l.name,
     l.lot_number,

@@ -50,11 +50,13 @@ Applique `ux-ui.mdc` :
 - dialogue de confirmation pour toute action listée dans la section 1 de `ux-ui.mdc` ;
 - formulaire qui garde la saisie en cas d'erreur, bouton désactivé pendant l'envoi ;
 - alertes métier visibles au moment de la décision ;
-- tokens de `index.css`, textes en français.
+- tokens de `index.css`, textes en français ;
+- toast après une écriture réussie (`toast.success`) ;
+- liens vers les fiches liées avec `openSession` / `openLot` / `openClient` (voir `frontend-react.mdc`).
 
 ## 7. Clore
 
-1. `pnpm build` passe.
+1. `pnpm check` passe (lint, format, Vitest, build). Parcours d'écran nouveau : test dans `e2e/`, puis `pnpm test:e2e`.
 2. Lance `pnpm tauri dev` et fais le parcours à la main, y compris un cas d'erreur, si l'environnement le permet. Sinon, dis-le.
 3. Coche la roadmap dans `project.md` si une case avance.
 4. Passe le skill `tracink-review` sur le diff.

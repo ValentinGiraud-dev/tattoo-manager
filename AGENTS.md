@@ -25,7 +25,9 @@ pnpm tauri dev                   # lancer l'app en développement
 pnpm build                       # tsc + build Vite (vérifie les types)
 pnpm lint                        # ESLint
 pnpm format                      # Prettier (pnpm format:check pour vérifier)
-pnpm check                       # lint + format:check + build
+pnpm check                       # lint + format:check + tests unitaires + build
+pnpm test                        # Vitest : logique frontend (src/**/*.test.ts)
+pnpm test:e2e                    # Playwright : parcours d'écran avec faux backend (e2e/)
 cd src-tauri && cargo test       # tests Rust (règles métier, sauvegardes)
 cd src-tauri && cargo fmt --check
 cd src-tauri && cargo clippy --all-targets -- -D warnings
@@ -50,7 +52,8 @@ Une tâche n'est finie que si :
 
 1. `pnpm check`, `cargo test`, `cargo fmt --check` et `cargo clippy --all-targets -- -D warnings` passent. La CI (`.github/workflows/ci.yml`) lance les mêmes commandes.
 2. Chaque nouvelle règle métier a un test Rust (cas nominal + cas refusé).
-3. L'écran gère les états chargement, vide, erreur et succès (voir `ux-ui.mdc`).
+3. L'écran gère les états chargement, vide, erreur et succès (voir `ux-ui.mdc`) ; une écriture réussie affiche un toast (`toast.success`, `src/stores/toast-store.ts`).
+   Un parcours d'écran nouveau ou modifié a son test Playwright dans `e2e/` (faux backend : `e2e/fake-backend.ts`).
 4. Toute action sensible a sa confirmation (liste dans `ux-ui.mdc`).
 5. Les messages visibles sont en français, sans erreur SQL brute.
 6. Si le schéma change : nouvelle migration (jamais d'édition d'une ancienne), `database-start.md` et `data-model-v1.mdc` mis à jour.
@@ -86,13 +89,9 @@ Les PDF de l'atelier (`src-tauri/assets/forms/`) sont pré-remplis par superposi
 
 Ces écarts existent dans le code actuel. Ne pas les copier ; les corriger quand on travaille dans la zone.
 
-- Pas encore de toast de succès : les écritures réussies ne sont signalées que par le rafraîchissement de l'écran.
-- Quatre écrans appellent `setState` dans un `useEffect` (avertissement ESLint `react-hooks/set-state-in-effect`, passé en `warn` en attendant).
-- Les classes de boutons et champs sont recopiées en tête de chaque écran ancien : utiliser `src/components/styles.ts`.
 - Code Touch ID et Trousseau (`security/biometry.rs`, `macos/touch_id.m`) compilé seulement sur macOS : seul le job CI `macos` le vérifie.
 - Pas de rotation de la clé maître : changer le mot de passe ne rechiffre pas les données (voir `security-privacy.mdc`).
 - Pas de seuil de stock bas : l'accueil ne signale que la péremption.
-- Navigation entre écrans limitée aux séances (`useUIStore().openSession` / `newSession`). Pas encore d'historique « Précédent ».
+- Retour d'une fiche limité à un niveau (`origin` dans `ui-store`) : pas d'historique complet.
 - Pas encore de journal d'audit générique (`audit_log`) : seules les annulations de liens et les mouvements de stock gardent une trace motivée.
-- Tables `products` et `session_products` conservées mais inutilisées depuis la migration 006.
-- Vitest et Playwright ne sont pas encore installés : pas de tests frontend.
+- Les tests d'écran (Playwright) utilisent un faux backend : ils ne vérifient pas les appels Rust réels. Ceux-ci sont couverts par `cargo test`.

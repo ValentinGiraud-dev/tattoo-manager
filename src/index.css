@@ -17,7 +17,7 @@
   --warning: #dcb36e;
   --danger: #e2786b;
   --info: #93abd8;
-  --font-sans: "Geist", "GeistSans", -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-sans: "Geist Sans", "Geist", -apple-system, "SF Pro Text", system-ui, sans-serif;
   --font-mono: "Geist Mono", "SF Mono", ui-monospace, Menlo, monospace;
   --r-sm: 6px;
   --r-md: 10px;
@@ -66,7 +66,7 @@
   --color-warning: var(--warning);
   --color-danger: var(--danger);
   --color-info: var(--info);
-  --font-sans: "Geist", "GeistSans", -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-sans: "Geist Sans", "Geist", -apple-system, "SF Pro Text", system-ui, sans-serif;
   --font-mono: "Geist Mono", "SF Mono", ui-monospace, Menlo, monospace;
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -130,5 +130,13 @@
   from {
     opacity: 0;
     transform: translateY(4px) scale(0.98);
+  }
+}
+
+/* Toasts (src/components/toaster.tsx) */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
   }
 }

@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { Fragment, useEffect } from "react";
 import { AppShell } from "./components/app-shell";
 import { ConfirmProvider } from "./components/confirm-dialog";
+import { Toaster } from "./components/toaster";
 import { UpdateNotice } from "./components/update-notice";
 import ClientsPage from "./features/clients/clients-page";
 import DashboardPage from "./features/dashboard/dashboard-page";
@@ -15,6 +16,8 @@ import { useUIStore } from "./stores/ui-store";
 function App() {
   const { error, load } = useSettingsStore();
   const page = useUIStore((state) => state.page);
+  // Un clic dans le menu remonte l'écran : il repart de sa liste.
+  const visit = useUIStore((state) => state.visit);
 
   useEffect(() => {
     void load();
@@ -30,14 +33,17 @@ function App() {
             {error}
           </div>
         )}
-        {page === "dashboard" && <DashboardPage />}
-        {page === "planning" && <PlanningPage />}
-        {page === "clients" && <ClientsPage />}
-        {page === "sessions" && <SessionsPage />}
-        {page === "products" && <ProductsPage />}
-        {page === "reports" && <ReportsPage />}
-        {page === "settings" && <SettingsPage />}
+        <Fragment key={`${page}-${visit}`}>
+          {page === "dashboard" && <DashboardPage />}
+          {page === "planning" && <PlanningPage />}
+          {page === "clients" && <ClientsPage />}
+          {page === "sessions" && <SessionsPage />}
+          {page === "products" && <ProductsPage />}
+          {page === "reports" && <ReportsPage />}
+          {page === "settings" && <SettingsPage />}
+        </Fragment>
       </AppShell>
+      <Toaster />
     </ConfirmProvider>
   );
 }

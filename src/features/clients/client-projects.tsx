@@ -16,6 +16,7 @@ import {
 import type { SessionListItem } from "../../stores/sessions-store";
 import { useUIStore } from "../../stores/ui-store";
 import { StatusBadge } from "../sessions/session-status";
+import { toast } from "../../stores/toast-store";
 
 const DEPOSIT_STATUS: Record<Deposit["status"], string> = {
   HELD: "En attente",
@@ -68,6 +69,7 @@ function ProjectForm({
       };
       const saved = project ? await store.update(project.id, input) : await store.create(input);
       setDirty(false);
+      toast.success(project ? "Projet enregistré" : "Projet créé");
       onDone(saved);
     } catch (submitError) {
       setError(String(submitError));
@@ -217,6 +219,7 @@ function ProjectDetail({
     const reason = result.reason;
     try {
       await billing.voidDeposit(deposit.id, reason);
+      toast.success("Acompte annulé");
       await reload();
     } catch (voidError) {
       setError(String(voidError));
@@ -348,6 +351,7 @@ function ProjectDetail({
               note: draft.note,
             });
             setAdding(false);
+            toast.success("Acompte enregistré");
             await reload();
           }}
         />
