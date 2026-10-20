@@ -141,6 +141,16 @@ export function LockScreen({ autoTouchId }: { autoTouchId: boolean }) {
           </p>
         </div>
 
+        {status?.rotationPending && (
+          <p
+            role="note"
+            className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[13px] text-fg"
+          >
+            Le rechiffrement des données a été interrompu. Saisissez l’ancien ou le nouveau mot de
+            passe : il se terminera à l’ouverture.
+          </p>
+        )}
+
         {touchId && (
           <button
             type="button"

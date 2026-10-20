@@ -42,6 +42,7 @@ alwaysApply: false
 - Fichier `NNN_description.sql`, numéro suivant, dans `src-tauri/migrations/`.
 - **Ne jamais modifier une migration déjà livrée** : SQLx vérifie leur somme de contrôle et l'app refuserait de démarrer chez la tatoueuse.
 - Additives : `CREATE TABLE`, `ADD COLUMN`, `CREATE INDEX`. Une transformation de données est explicite, testée et refuse de continuer si les données sont ambiguës (exemple : garde de la migration 006).
+- Journal d'audit : une nouvelle table métier reçoit ses déclencheurs `audit_<table>_insert`, `_update`, `_delete` (modèle : `012_audit_log.sql`) ; une nouvelle colonne s'ajoute à leurs `json_object` en recréant les trois déclencheurs. Une table reconstruite (`DROP` + `CREATE`) perd ses déclencheurs : les recréer dans la même migration. Le test `audit_triggers_cover_every_column` le vérifie.
 - Skill `tracink-migration` pour la procédure complète.
 
 ## Reconstruire une table

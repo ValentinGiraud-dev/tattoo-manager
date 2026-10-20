@@ -15,6 +15,9 @@ CLIENT 1──< SESSION ──< SESSION_USAGE >── LOT
                 ├── SESSION_FORM (kind HEALTH | CONSENT, une par type)
                 └── SESSION_DOCUMENT (scans signés et autres fichiers)
 
+PRODUCT_CATEGORY 1──< PRODUCT_CATEGORY (sous-catégories, sans limite de niveaux)
+PRODUCT_CATEGORY 1──< LOT (category_id, optionnel)
+
 LOT 1──< STOCK_MOVEMENT
 UNIT 1──< STOCK_MOVEMENT
 ```
@@ -30,6 +33,12 @@ UNIT 1──< STOCK_MOVEMENT
 
 Montants en centimes (entiers). Les tables d'argent refusent `UPDATE` (sauf l'annulation, une fois) et `DELETE` par triggers.
 - `lots` : `name`, `lot_number`, `expiration_date`, `single_use`, `created_at`, `updated_at` obligatoires. `creation_date`, `after_opening_months`, `product_url` optionnels. Identité : couple nom + numéro, sans tenir compte de la casse. `single_use` vaut 1 pour un usage unique (aiguille, cartouche, gant), 0 pour un usage multiple (encre, et tout produit réutilisé). `after_opening_months` est interdit quand `single_use` vaut 1. Un même numéro peut couvrir plusieurs lots si les noms diffèrent : une boîte d'aiguilles de plusieurs tailles est un lot par taille.
+- `product_categories` : `name`, `created_at`, `updated_at` obligatoires, `parent_id` optionnel (racine). Nom unique parmi les sœurs, sans tenir compte de la casse (index unique). Jamais de boucle (vérifié en Rust, `services/categories.rs`). Supprimer une catégorie fait remonter ses sous-catégories et ses lots d'un niveau ; rien d'autre n'est supprimé.
+- `audit_log` : journal d'audit (migration 012). Rempli par les déclencheurs `audit_<table>_insert|update|delete` de chaque table métier, plus les événements de l'app (`services/audit.rs`, `entity = 'app'`). Ne se modifie ni ne s'efface (triggers). `before_json` / `after_json` : colonnes suivies, sans `id`, `created_at`, `updated_at`, `session_forms.answers` (santé) ni `session_documents.stored_name`. **Toute nouvelle table ou colonne métier doit être suivie** : le test `audit_triggers_cover_every_column` échoue sinon.
+- `product_sheets` : fiche produit (migration 013). `name`, `single_use`, `created_at`, `updated_at` obligatoires ; `brand`, `category_id`, `after_opening_months` (interdit en usage unique), `product_url` optionnels. Identité nom + marque sans casse (index unique). Le type ne change plus dès qu'un lot y est rattaché ; une fiche avec des lots ne se supprime pas (`services/product_sheets.rs`).
+- Stock bas (migration 014) : `product_sheets.low_stock_threshold` (vide = catégorie, 0 = aucune alerte, N ≥ 1) ; `product_categories.low_stock_mode` (`EACH` ou `TOTAL`) et `low_stock_threshold` (> 0), remplis ensemble (déclencheurs). Stock surveillé = lots non périmés de la fiche ; alerte si stock ≤ seuil. Résolution du seuil et rapport : `services/low_stock.rs`.
+- `lots.product_id` : optionnel (lots reçus avant les fiches). Rattacher un lot ne modifie pas son identité ; son type doit être celui de la fiche ; sa `category_id` suit celle de la fiche (copiée à chaque changement).
+- `lots.category_id` : optionnel. C'est du rangement, pas de l'identité : modifiable même pour un lot déjà utilisé en séance.
 - `units` : pièces d'un lot à usage multiple. `lot_id`, `created_at`, `updated_at` obligatoires. `opened_at` optionnel. Un lot usage unique n'en a aucune.
 - `stock_movements` : `lot_id`, `type`, `quantity`, `created_at` obligatoires. `unit_id`, `session_id`, `reason` optionnels. Types : `PURCHASE`, `CONSUMPTION`, `LOSS`, `EXPIRATION`, `RETURN`, `ADJUSTMENT`. La quantité affichée est la somme des mouvements. Elle n'est jamais stockée ni écrasée.
 - `session_usages` : `session_id`, `created_at`, et exactement un de `lot_id` ou `unit_id`. Ces liens ne se suppriment pas.

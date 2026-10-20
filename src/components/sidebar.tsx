@@ -57,6 +57,7 @@ const NAV: { id: AppPage; label: string }[] = [
   { id: "sessions", label: "Séances" },
   { id: "products", label: "Produits" },
   { id: "reports", label: "Rapports" },
+  { id: "journal", label: "Journal" },
   { id: "settings", label: "Paramètres" },
 ];
 

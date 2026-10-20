@@ -119,6 +119,8 @@ fn lot(name: &str, expiration: &str, single_use: bool, quantity: i64) -> CreateL
         after_opening_months: if single_use { None } else { Some(6) },
         product_url: None,
         quantity,
+        category_id: None,
+        product_id: None,
     }
 }
 

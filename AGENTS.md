@@ -44,6 +44,8 @@ React (écran) → store Zustand → invoke("commande") → commands/ (mince) �
 
 Toute règle métier vit dans `src-tauri/src/services/`. React affiche, collecte et confirme ; il ne décide pas.
 
+Chaque écriture en base est journalisée par des déclencheurs SQLite (`audit_log`, migration 012, `services/audit.rs`). Une nouvelle table ou colonne métier doit être ajoutée aux déclencheurs (voir `rust-backend.mdc`).
+
 La base est fermée tant que l'app est verrouillée : les commandes la demandent à l'état `Db` (`db.pool()?`). Côté React, `SecurityGate` (`src/features/security/`) ne monte l'app qu'après le premier déverrouillage. Chiffrement, Touch ID et sauvegardes : `security-privacy.mdc`.
 
 ## Définition de « terminé »
@@ -90,8 +92,4 @@ Les PDF de l'atelier (`src-tauri/assets/forms/`) sont pré-remplis par superposi
 Ces écarts existent dans le code actuel. Ne pas les copier ; les corriger quand on travaille dans la zone.
 
 - Code Touch ID et Trousseau (`security/biometry.rs`, `macos/touch_id.m`) compilé seulement sur macOS : seul le job CI `macos` le vérifie.
-- Pas de rotation de la clé maître : changer le mot de passe ne rechiffre pas les données (voir `security-privacy.mdc`).
-- Pas de seuil de stock bas : l'accueil ne signale que la péremption.
-- Retour d'une fiche limité à un niveau (`origin` dans `ui-store`) : pas d'historique complet.
-- Pas encore de journal d'audit générique (`audit_log`) : seules les annulations de liens et les mouvements de stock gardent une trace motivée.
 - Les tests d'écran (Playwright) utilisent un faux backend : ils ne vérifient pas les appels Rust réels. Ceux-ci sont couverts par `cargo test`.

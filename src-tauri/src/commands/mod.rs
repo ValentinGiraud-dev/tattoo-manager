@@ -10,16 +10,20 @@ use tauri_plugin_opener::OpenerExt;
 use crate::config::{AppPaths, AppPathsDto, AppSettings};
 use crate::database::Db;
 use crate::models::{Client, StockMovement};
+use crate::services::audit::{self, AuditPage, AuditQuery};
 use crate::services::billing::{
     self, DepositInput, DepositView, PaymentInput, PaymentView, SessionBilling, SettleDepositInput,
 };
+use crate::services::categories::{self, CategoryInput, CategoryView, LowStockSetting};
 use crate::services::clients::{self, ClientInput};
 use crate::services::dashboard::{self, Dashboard, PeriodSummary};
 use crate::services::exports::{self, ExportKind};
 use crate::services::lots::{self, CreateLotInput, LotSummary, UpdateLotInput};
+use crate::services::low_stock::{self, LowStockReport};
 use crate::services::paperwork::{
     self, ConsentAnswers, DocumentKind, FormKind, HealthAnswers, Paperwork, SessionDocument,
 };
+use crate::services::product_sheets::{self, ProductSheetInput, ProductSheetView};
 use crate::services::projects::{self, ProjectInput, ProjectSummary};
 use crate::services::session_usages::{
     self, LinkSessionInput, LinkableItem, LotSessionItem, SessionUsageItem, VoidUsageInput,
@@ -576,6 +580,126 @@ pub async fn void_payment(
 }
 
 #[tauri::command]
+pub async fn list_categories(db: State<'_, Db>) -> Result<Vec<CategoryView>, String> {
+    categories::list_categories(&db.pool()?)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn create_category(
+    db: State<'_, Db>,
+    input: CategoryInput,
+) -> Result<CategoryView, String> {
+    categories::create_category(&db.pool()?, input)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn update_category(
+    db: State<'_, Db>,
+    id: String,
+    input: CategoryInput,
+) -> Result<CategoryView, String> {
+    categories::update_category(&db.pool()?, &id, input)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_category(db: State<'_, Db>, id: String) -> Result<(), String> {
+    categories::delete_category(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_product_sheets(
+    db: State<'_, Db>,
+    search: Option<String>,
+) -> Result<Vec<ProductSheetView>, String> {
+    product_sheets::list_sheets(&db.pool()?, search)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_product_sheet(db: State<'_, Db>, id: String) -> Result<ProductSheetView, String> {
+    product_sheets::get_sheet(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Crée une fiche ; `attach_lot_ids` : lots existants à y rattacher en même temps.
+#[tauri::command]
+pub async fn create_product_sheet(
+    db: State<'_, Db>,
+    input: ProductSheetInput,
+    attach_lot_ids: Vec<String>,
+) -> Result<ProductSheetView, String> {
+    product_sheets::create_sheet(&db.pool()?, input, attach_lot_ids)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn update_product_sheet(
+    db: State<'_, Db>,
+    id: String,
+    input: ProductSheetInput,
+) -> Result<ProductSheetView, String> {
+    product_sheets::update_sheet(&db.pool()?, &id, input)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_product_sheet(db: State<'_, Db>, id: String) -> Result<(), String> {
+    product_sheets::delete_sheet(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Rattache un lot à une fiche produit, ou le détache (`sheetId` vide).
+#[tauri::command]
+pub async fn set_lot_product_sheet(
+    db: State<'_, Db>,
+    lot_id: String,
+    sheet_id: Option<String>,
+) -> Result<LotSummary, String> {
+    product_sheets::set_lot_sheet(&db.pool()?, &lot_id, sheet_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Seuil de stock bas d'une catégorie (`EACH` : chaque produit, `TOTAL` : la somme).
+#[tauri::command]
+pub async fn set_category_low_stock(
+    db: State<'_, Db>,
+    id: String,
+    setting: LowStockSetting,
+) -> Result<CategoryView, String> {
+    categories::set_low_stock(&db.pool()?, &id, setting)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_low_stock_report(db: State<'_, Db>) -> Result<LowStockReport, String> {
+    low_stock::report(&db.pool()?)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_audit_entries(db: State<'_, Db>, query: AuditQuery) -> Result<AuditPage, String> {
+    audit::list_entries(&db.pool()?, query)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn get_dashboard(db: State<'_, Db>) -> Result<Dashboard, String> {
     dashboard::get_dashboard(&db.pool()?, services::expiry::today())
         .await
@@ -617,13 +741,21 @@ pub async fn export_csv(
     if target.extension().and_then(|ext| ext.to_str()) != Some("csv") {
         target.set_extension("csv");
     }
-    let csv = exports::export(&db.pool()?, kind, &from, &to)
+    let pool = db.pool()?;
+    let csv = exports::export(&pool, kind, &from, &to)
         .await
         .map_err(|error| error.to_string())?;
     std::fs::write(&target, csv.bytes()).map_err(|error| {
         eprintln!("export CSV : {}", error.kind());
         "Le fichier n'a pas pu être enregistré à cet endroit.".to_string()
     })?;
+    // Les données sortent de la base chiffrée : on garde la trace de l'export.
+    audit::record_event_after(
+        &pool,
+        audit::event::CSV_EXPORTED,
+        serde_json::json!({ "kind": kind.code(), "from": from, "to": to, "rows": csv.rows }),
+    )
+    .await;
     Ok(ExportResult {
         path: target.display().to_string(),
         rows: csv.rows,

@@ -11,7 +11,10 @@ use crate::config::{self, AppPaths, AUTO_LOCK_CHOICES};
 use crate::database::{self, Db, OpenError, Unlocked};
 use crate::external_backup::{self, BackupEntry, Secret};
 use crate::security::biometry::{self, BiometryOutcome};
+use crate::security::rotation;
 use crate::security::vault::{KdfParams, MasterKey, Vault, VaultError};
+use crate::services::audit::{self, event};
+use serde_json::json;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -32,6 +35,9 @@ pub struct SecurityStatus {
     /// Base chiffrée présente mais coffre absent : seule une restauration peut aider.
     pub vault_missing: bool,
     pub auto_lock_minutes: u32,
+    /// Rechiffrement commencé et pas terminé : l'ancien comme le nouveau mot de
+    /// passe ouvrent l'app, qui le termine.
+    pub rotation_pending: bool,
 }
 
 fn version(app: &AppHandle) -> String {
@@ -63,6 +69,7 @@ fn status(db: &Db, paths: &AppPaths) -> SecurityStatus {
         has_plaintext_data: !vault_exists && plaintext,
         vault_missing: !vault_exists && database_exists && !plaintext,
         auto_lock_minutes: settings.security.auto_lock_minutes,
+        rotation_pending: rotation::is_pending(paths),
     }
 }
 
@@ -109,7 +116,19 @@ async fn open_with_key(
     paths: &AppPaths,
     key: MasterKey,
 ) -> Result<SecurityStatus, OpenError> {
+    // Rechiffrement interrompu : il se termine avant d'ouvrir la base.
+    let rotated = rotation::is_pending(paths);
+    let key = rotation::resume(paths, key).await?;
     let pool = database::open(paths, &key, &version(app)).await?;
+    if rotated {
+        let touch_id = config::load_settings(paths)
+            .map(|settings| settings.security.touch_id)
+            .unwrap_or(false);
+        if touch_id && biometry::store_key(&key).is_err() {
+            let _ = config::modify_settings(paths, |settings| settings.security.touch_id = false);
+        }
+        audit::record_event_after(&pool, event::KEY_ROTATED, json!(null)).await;
+    }
     db.set(Unlocked { pool, key });
     FAILED_ATTEMPTS.store(0, Ordering::Relaxed);
     Ok(status(db, paths))
@@ -159,6 +178,14 @@ pub async fn setup_security(
         }
         return Err(error);
     }
+    if let Ok(pool) = db.pool() {
+        audit::record_event_after(
+            &pool,
+            event::SECURITY_ENABLED,
+            json!({ "existing_data": database_existed }),
+        )
+        .await;
+    }
     Ok(recovery.display().to_string())
 }
 
@@ -175,12 +202,21 @@ pub async fn unlock_with_password(
     }
     slow_down_after_failures().await;
     let vault = Vault::load(&paths.vault).map_err(|error| error.to_string())?;
+    // Rechiffrement en cours : le nouveau mot de passe ouvre aussi l'app.
+    let pending = rotation::pending_vault(&paths);
     let password = Zeroizing::new(password);
-    let key = derive(move || vault.unlock_with_password(&password))
-        .await
-        .inspect_err(|_| {
-            FAILED_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
-        })?;
+    let key = derive(move || match vault.unlock_with_password(&password) {
+        Err(VaultError::WrongSecret) if pending.is_some() => pending
+            .as_ref()
+            .map_or(Err(VaultError::WrongSecret), |pending| {
+                pending.unlock_with_password(&password)
+            }),
+        other => other,
+    })
+    .await
+    .inspect_err(|_| {
+        FAILED_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+    })?;
     open_with_key(&app, &db, &paths, key)
         .await
         .map_err(open_error)
@@ -202,6 +238,37 @@ pub async fn unlock_with_recovery_key(
     let recovery_key = Zeroizing::new(recovery_key);
     let new_password = Zeroizing::new(new_password);
     crate::security::vault::check_new_password(&new_password).map_err(|error| error.to_string())?;
+
+    // Rechiffrement en cours : l'ancienne ou la nouvelle clé de secours ouvre l'app,
+    // qui termine le rechiffrement ; le mot de passe choisi est posé sur le coffre final.
+    if let Some(pending) = rotation::pending_vault(&paths) {
+        let key = derive(move || {
+            vault
+                .unlock_with_recovery(&recovery_key)
+                .or_else(|_| pending.unlock_with_recovery(&recovery_key))
+        })
+        .await
+        .inspect_err(|_| {
+            FAILED_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+        })?;
+        if !db.is_unlocked() {
+            open_with_key(&app, &db, &paths, key)
+                .await
+                .map_err(open_error)?;
+        }
+        let key = db.key()?;
+        let mut vault = Vault::load(&paths.vault).map_err(|error| error.to_string())?;
+        let vault = derive(move || {
+            vault.set_password(&key, &new_password)?;
+            Ok(vault)
+        })
+        .await?;
+        vault
+            .save(&paths.vault)
+            .map_err(|error| error.to_string())?;
+        return Ok(status(&db, &paths));
+    }
+
     let vault = derive(move || {
         let key = vault.unlock_with_recovery(&recovery_key)?;
         vault.set_password(&key, &new_password)?;
@@ -326,7 +393,13 @@ pub async fn change_password(
         Ok(vault)
     })
     .await?;
-    vault.save(&paths.vault).map_err(|error| error.to_string())
+    vault
+        .save(&paths.vault)
+        .map_err(|error| error.to_string())?;
+    if let Ok(pool) = db.pool() {
+        audit::record_event_after(&pool, event::PASSWORD_CHANGED, json!(null)).await;
+    }
+    Ok(())
 }
 
 /// Nouvelle clé de secours (l'ancienne cesse de fonctionner). Demande le mot de passe.
@@ -349,6 +422,9 @@ pub async fn renew_recovery_key(
     vault
         .save(&paths.vault)
         .map_err(|error| error.to_string())?;
+    if let Ok(pool) = db.pool() {
+        audit::record_event_after(&pool, event::RECOVERY_KEY_RENEWED, json!(null)).await;
+    }
     Ok(recovery.to_string())
 }
 
@@ -378,24 +454,118 @@ pub async fn set_touch_id(
     }
     config::modify_settings(&paths, |settings| settings.security.touch_id = enabled)
         .map_err(settings_error)?;
+    if let Ok(pool) = db.pool() {
+        audit::record_event_after(
+            &pool,
+            event::TOUCH_ID_CHANGED,
+            json!({ "enabled": enabled }),
+        )
+        .await;
+    }
     Ok(status(&db, &paths))
 }
 
 #[tauri::command]
-pub fn set_auto_lock(
+pub async fn set_auto_lock(
     db: State<'_, Db>,
     paths: State<'_, AppPaths>,
     minutes: u32,
 ) -> Result<SecurityStatus, String> {
-    db.pool()?;
+    let pool = db.pool()?;
     if !AUTO_LOCK_CHOICES.contains(&minutes) {
         return Err("Durée de verrouillage non proposée.".to_string());
     }
+    let previous = config::load_settings(&paths)
+        .map(|settings| settings.security.auto_lock_minutes)
+        .ok();
     config::modify_settings(&paths, |settings| {
         settings.security.auto_lock_minutes = minutes
     })
     .map_err(settings_error)?;
+    if previous != Some(minutes) {
+        audit::record_event_after(
+            &pool,
+            event::AUTO_LOCK_CHANGED,
+            json!({ "minutes": minutes }),
+        )
+        .await;
+    }
     Ok(status(&db, &paths))
+}
+
+/// Rotation de la clé maître : tout est rechiffré sous une nouvelle clé, avec un
+/// nouveau mot de passe ; renvoie la nouvelle clé de secours (affichée une fois).
+///
+/// Les sauvegardes externes déjà faites gardent l'ancienne clé ; une nouvelle
+/// sauvegarde est faite juste après si un dossier est choisi.
+#[tauri::command]
+pub async fn rotate_master_key(
+    app: AppHandle,
+    db: State<'_, Db>,
+    paths: State<'_, AppPaths>,
+    current_password: String,
+    new_password: String,
+) -> Result<String, String> {
+    let _operation = db.operation.lock().await;
+    let old_key = db.key()?;
+    let current = Zeroizing::new(current_password);
+    let new_password = Zeroizing::new(new_password);
+    if current.as_str() == new_password.as_str() {
+        return Err("Choisis un mot de passe différent de l'actuel.".to_string());
+    }
+    crate::security::vault::check_new_password(&new_password).map_err(|error| error.to_string())?;
+    let vault = Vault::load(&paths.vault).map_err(|error| error.to_string())?;
+    let expected = old_key.clone();
+    let (new_key, new_vault, recovery) = derive(move || {
+        let opened = vault
+            .unlock_with_password(&current)
+            .map_err(|error| match error {
+                VaultError::WrongSecret => {
+                    VaultError::Invalid("Le mot de passe actuel est incorrect.")
+                }
+                other => other,
+            })?;
+        if opened.as_bytes() != expected.as_bytes() {
+            return Err(VaultError::Invalid(
+                "Le coffre ne correspond pas aux données ouvertes. Verrouille puis rouvre Tracink.",
+            ));
+        }
+        let new_key = MasterKey::generate();
+        let (new_vault, recovery) = Vault::create_with_key(&new_password, vault.kdf, &new_key)?;
+        Ok((
+            new_key,
+            new_vault,
+            Zeroizing::new(recovery.display().to_string()),
+        ))
+    })
+    .await?;
+
+    rotation::start(&paths, &old_key, &new_key, new_vault)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    // À partir d'ici, la rotation se termine même en cas de coupure (au déverrouillage).
+    if let Some(unlocked) = db.take() {
+        unlocked.pool.close().await;
+    }
+    config::clear_opened(&paths);
+    open_with_key(&app, &db, &paths, old_key)
+        .await
+        .map_err(open_error)?;
+
+    // Une sauvegarde sous la nouvelle clé, si un dossier est choisi.
+    let has_folder = config::load_settings(&paths)
+        .map(|settings| settings.backup.folder.is_some())
+        .unwrap_or(false);
+    if has_folder {
+        if let (Ok(pool), Ok(key)) = (db.pool(), db.key()) {
+            if backup_now(&app, &paths, &pool, &key, true).await.is_err() {
+                // L'erreur est aussi gardée dans les réglages (bandeau des sauvegardes).
+                eprintln!("rotation : sauvegarde après rotation impossible");
+            }
+        }
+    }
+    Ok(recovery.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -470,6 +640,10 @@ async fn backup_now(
     })
     .map_err(settings_error)?;
 
+    if matches!(attempt, Ok(("CREATED", _))) {
+        audit::record_event_after(pool, event::BACKUP_CREATED, json!({ "automatic": !force }))
+            .await;
+    }
     attempt.map(|(result, _)| BackupOutcome {
         result,
         settings: saved.backup,
@@ -526,12 +700,12 @@ pub async fn run_backup_if_due(
 }
 
 #[tauri::command]
-pub fn set_backup_folder(
+pub async fn set_backup_folder(
     db: State<'_, Db>,
     paths: State<'_, AppPaths>,
     folder: Option<String>,
 ) -> Result<config::BackupSettings, String> {
-    db.pool()?;
+    let pool = db.pool()?;
     let folder = folder.map(|folder| {
         external_backup::normalize_folder(Path::new(&folder))
             .display()
@@ -552,7 +726,8 @@ pub fn set_backup_folder(
     let changed = config::load_settings(&paths)
         .map(|settings| settings.backup.folder != folder)
         .unwrap_or(true);
-    config::modify_settings(&paths, |settings| {
+    let logged_folder = folder.clone();
+    let saved = config::modify_settings(&paths, |settings| {
         if changed {
             // Nouveau dossier : la prochaine sauvegarde y est faite sans attendre.
             settings.backup.last_check_at = None;
@@ -562,7 +737,16 @@ pub fn set_backup_folder(
         settings.backup.folder = folder;
     })
     .map(|settings| settings.backup)
-    .map_err(settings_error)
+    .map_err(settings_error)?;
+    if changed {
+        audit::record_event_after(
+            &pool,
+            event::BACKUP_FOLDER_CHANGED,
+            json!({ "folder": logged_folder }),
+        )
+        .await;
+    }
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -694,6 +878,15 @@ pub async fn restore_backup(
     let status = open_with_key(&app, &db, &paths, key)
         .await
         .map_err(open_error)?;
+    // Écrit dans la base restaurée : son journal est celui de la sauvegarde.
+    if let Ok(pool) = db.pool() {
+        audit::record_event_after(
+            &pool,
+            event::BACKUP_RESTORED,
+            json!({ "backup": name, "with_recovery_key": recovery_key.is_some() }),
+        )
+        .await;
+    }
     Ok(RestoreOutcome {
         status,
         previous_data: aside.display().to_string(),

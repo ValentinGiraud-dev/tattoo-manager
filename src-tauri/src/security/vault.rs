@@ -304,20 +304,31 @@ impl Vault {
         password: &str,
         kdf: KdfParams,
     ) -> Result<(Self, MasterKey, RecoveryKey), VaultError> {
-        check_new_password(password)?;
         let key = MasterKey::generate();
+        let (vault, recovery) = Self::create_with_key(password, kdf, &key)?;
+        Ok((vault, key, recovery))
+    }
+
+    /// Coffre neuf pour une clé maître donnée (rotation de la clé) : nouveau mot de
+    /// passe et nouvelle clé de secours.
+    pub fn create_with_key(
+        password: &str,
+        kdf: KdfParams,
+        key: &MasterKey,
+    ) -> Result<(Self, RecoveryKey), VaultError> {
+        check_new_password(password)?;
         let recovery = RecoveryKey::generate();
         let canonical = normalize_recovery(recovery.display())?;
         let created_at = now();
         let vault = Self {
             format: VAULT_FORMAT,
             kdf,
-            password: KeySlot::seal(&kdf, password.as_bytes(), &key)?,
-            recovery: KeySlot::seal(&kdf, canonical.as_bytes(), &key)?,
+            password: KeySlot::seal(&kdf, password.as_bytes(), key)?,
+            recovery: KeySlot::seal(&kdf, canonical.as_bytes(), key)?,
             password_changed_at: created_at.clone(),
             created_at,
         };
-        Ok((vault, key, recovery))
+        Ok((vault, recovery))
     }
 
     pub fn unlock_with_password(&self, password: &str) -> Result<MasterKey, VaultError> {

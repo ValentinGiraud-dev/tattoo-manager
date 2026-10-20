@@ -2,4 +2,5 @@
 
 pub mod biometry;
 pub mod files;
+pub mod rotation;
 pub mod vault;

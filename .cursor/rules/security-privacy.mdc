@@ -40,8 +40,14 @@ Tout est chiffré au repos ; rien n'est lisible sans le mot de passe de l'app, l
 - Au démarrage la base est fermée. `Db` (état Tauri) la donne aux commandes : `let pool = db.pool()?` renvoie « Tracink est verrouillé » tant qu'elle n'est pas ouverte. Une commande qui lit ou écrit un fichier chiffré prend aussi `db.key()?`.
 - Ne jamais écrire un fichier client en clair dans `documents/` ou `photos/` : passer par `files::encrypt_file_to`. Pour l'ouvrir, déchiffrer dans `AppPaths.opened`.
 - Ne jamais journaliser une clé, un mot de passe, une clé de secours, ni un chemin de fichier client (le nom d'origine peut contenir un nom de personne).
+- Le journal d'audit (`audit_log`) est dans la base chiffrée : il peut citer des noms, comme le reste de la base. Il ne recopie jamais les réponses de santé ni de consentement, ni un secret. Un événement de sécurité y est noté sans aucune valeur secrète.
 - Verrouillage automatique après inactivité (10 min par défaut), bouton « Verrouiller » et ⌘L. L'écran reste monté mais masqué et inerte : un formulaire en cours n'est pas perdu.
-- Changer le mot de passe ne rechiffre rien (seule l'enveloppe change). Conséquence : une sauvegarde ancienne s'ouvre avec le mot de passe en vigueur à sa date. Si un mot de passe a fuité avec une copie des données, il faudra une rotation de la clé maître (non faite aujourd'hui).
+- Changer le mot de passe ne rechiffre rien (seule l'enveloppe change). Conséquence : une sauvegarde ancienne s'ouvre avec le mot de passe en vigueur à sa date.
+- Rotation de la clé maître (`security/rotation.rs`, Paramètres › Sécurité › « Rechiffrer toutes les données ») : si un mot de passe ou une clé de secours a pu fuiter avec une copie des données. Nouvelle clé maître, nouveau mot de passe (différent de l'actuel) et nouvelle clé de secours ; base, documents, photos et copies automatiques rechiffrés. Sûre en cas de coupure :
+  1. tout est vérifié avec l'ancienne clé, puis le journal `rotation.json` est écrit (nouveau coffre, nouvelle clé chiffrée par l'ancienne et inversement) ;
+  2. chaque élément est rechiffré s'il ne l'est pas déjà (base par copie vérifiée puis échange de fichiers, `database.pre-rotation` gardée jusqu'à la fin ; fichiers par écriture atomique) ;
+  3. `vault.json` est remplacé, puis le journal et l'ancienne base sont effacés.
+  Tant que le journal existe, l'ancien comme le nouveau mot de passe, l'ancienne comme la nouvelle clé de secours et Touch ID ouvrent l'app, qui termine la rotation (`open_with_key`). Les sauvegardes externes déjà faites ne sont pas touchées (elles gardent l'ancienne clé) ; une nouvelle sauvegarde est faite juste après. Événement `KEY_ROTATED` au journal d'audit. Pendant la rotation, l'ancienne clé donne aussi la nouvelle (c'est ce qui permet la reprise) : le journal n'est jamais copié dans une sauvegarde et il est effacé dès la fin.
 - Mot de passe et clé de secours perdus = données perdues. C'est voulu ; l'interface le dit à la création.
 - FileVault reste recommandé (protège aussi les fichiers temporaires de macOS).
 

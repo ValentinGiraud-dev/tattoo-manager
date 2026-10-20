@@ -138,8 +138,17 @@ pub async fn fingerprint(pool: &SqlitePool) -> Result<String, sqlx::Error> {
             .map(|column| format!("quote(\"{}\")", column.replace('"', "\"\"")))
             .collect::<Vec<_>>()
             .join(" || char(31) || ");
+        // Une sauvegarde ne compte pas comme un changement à sauvegarder.
+        let filter = if table == "audit_log" {
+            format!(
+                " WHERE action != '{}'",
+                crate::services::audit::event::BACKUP_CREATED
+            )
+        } else {
+            String::new()
+        };
         let rows: Vec<String> = sqlx::query_scalar(&format!(
-            "SELECT {row_expr} FROM \"{quoted}\" ORDER BY rowid"
+            "SELECT {row_expr} FROM \"{quoted}\"{filter} ORDER BY rowid"
         ))
         .fetch_all(pool)
         .await?;
@@ -487,6 +496,10 @@ pub fn replace_current_data(
         }
     }
 
+    // Un rechiffrement inachevé concerne les données remplacées : mis de côté avec elles.
+    let journal = paths.root.join("rotation.json");
+    move_if_exists(&journal, &aside.join("rotation.json"))?;
+
     let copied = (|| {
         fs::copy(backup.dir.join("database.sqlite"), &paths.database)?;
         copy_dir(&backup.dir.join("documents"), &paths.documents)?;
@@ -511,6 +524,7 @@ pub fn replace_current_data(
                 let _ = move_if_exists(target, current);
             }
         }
+        let _ = move_if_exists(&aside.join("rotation.json"), &journal);
         return Err(error.into());
     }
     Ok(aside)

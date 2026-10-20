@@ -55,6 +55,8 @@ fn lot_input(expiration_date: &str, single_use: bool) -> CreateLotInput {
         after_opening_months: if single_use { None } else { Some(6) },
         product_url: None,
         quantity: 10,
+        category_id: None,
+        product_id: None,
     }
 }
 
@@ -66,6 +68,7 @@ fn update_of(lot: &lots::LotSummary) -> UpdateLotInput {
         expiration_date: lot.expiration_date.clone(),
         after_opening_months: lot.after_opening_months,
         product_url: lot.product_url.clone(),
+        category_id: None,
     }
 }
 

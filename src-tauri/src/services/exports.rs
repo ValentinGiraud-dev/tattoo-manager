@@ -10,6 +10,7 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use super::billing::{self, PaymentMethod};
+use super::categories;
 use super::dashboard::parse_period;
 use super::error::LotError;
 use super::expiry;
@@ -23,6 +24,17 @@ pub enum ExportKind {
     Sessions,
     /// Produits utilisés par séance (lots, pièces), liens annulés compris.
     Traceability,
+}
+
+impl ExportKind {
+    /// Code enregistré dans le journal d'audit.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Payments => "PAYMENTS",
+            Self::Sessions => "SESSIONS",
+            Self::Traceability => "TRACEABILITY",
+        }
+    }
 }
 
 pub fn status_label(status: SessionStatus) -> &'static str {
@@ -290,6 +302,7 @@ struct UsageRow {
     opened_at: Option<String>,
     quantity: i64,
     void_reason: Option<String>,
+    category_id: Option<String>,
 }
 
 async fn traceability(pool: &SqlitePool, from: NaiveDate, to: NaiveDate) -> Result<Csv, LotError> {
@@ -303,7 +316,8 @@ async fn traceability(pool: &SqlitePool, from: NaiveDate, to: NaiveDate) -> Resu
                     WHERE m.session_id = su.session_id AND m.lot_id = su.lot_id
                       AND m.unit_id IS NULL AND m.type = 'CONSUMPTION'
                 ), 0) ELSE 0 END AS quantity,
-                v.reason AS void_reason
+                v.reason AS void_reason,
+                l.category_id
          FROM session_usages su
          INNER JOIN sessions s ON s.id = su.session_id
          INNER JOIN clients c ON c.id = s.client_id
@@ -330,7 +344,9 @@ async fn traceability(pool: &SqlitePool, from: NaiveDate, to: NaiveDate) -> Resu
         "Utilisable jusqu'au",
         "Périmé à la séance",
         "Lien annulé (motif)",
+        "Catégorie",
     ]);
+    let paths = categories::category_paths(pool).await?;
     for row in &rows {
         let useful_until = expiry::useful_until(
             &row.expiration_date,
@@ -361,6 +377,12 @@ async fn traceability(pool: &SqlitePool, from: NaiveDate, to: NaiveDate) -> Resu
             useful_until,
             if expired { "Oui" } else { "Non" }.to_string(),
             optional(row.void_reason.as_deref()),
+            optional(
+                row.category_id
+                    .as_ref()
+                    .and_then(|id| paths.get(id))
+                    .map(String::as_str),
+            ),
         ]));
     }
     Ok(Csv {

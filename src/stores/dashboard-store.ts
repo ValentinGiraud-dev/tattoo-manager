@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type { PaymentMethod } from "./billing-store";
+import type { LowStockReport } from "./products-store";
 import { errorMessage } from "./security-store";
 import type { SessionStatus } from "./sessions-store";
 
@@ -53,6 +54,8 @@ export type Alerts = {
   unpaid: DaySession[];
   depositsToSettle: DepositToSettle[];
   unsigned: DaySession[];
+  /** Fiches produit et catégories sous leur seuil d'alerte. */
+  lowStock: LowStockReport;
 };
 
 export type MethodTotal = { method: PaymentMethod; cents: number };
@@ -100,7 +103,9 @@ export function alertCount(alerts: Alerts): number {
     alerts.sessionsToClose.length +
     alerts.unpaid.length +
     alerts.depositsToSettle.length +
-    alerts.unsigned.length
+    alerts.unsigned.length +
+    alerts.lowStock.sheets.length +
+    alerts.lowStock.categories.length
   );
 }
 

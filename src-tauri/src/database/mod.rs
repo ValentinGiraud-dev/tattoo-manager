@@ -203,6 +203,18 @@ pub async fn export_encrypted(
     destination: &Path,
     key: &MasterKey,
 ) -> Result<(), OpenError> {
+    export_with_key(plain, None, destination, key).await
+}
+
+/// Copie d'une base vers `destination`, chiffrée avec `key`. La source est en clair
+/// (`source_key` vide) ou chiffrée avec `source_key` (rotation de la clé maître).
+/// La copie est vérifiée table par table avant d'être gardée.
+pub async fn export_with_key(
+    plain: &Path,
+    source_key: Option<&MasterKey>,
+    destination: &Path,
+    key: &MasterKey,
+) -> Result<(), OpenError> {
     remove_with_sidecars(destination).map_err(|error| failed("préparation", error))?;
     let target = destination
         .to_str()
@@ -210,7 +222,7 @@ pub async fn export_encrypted(
         .to_string();
 
     // L'ATTACH hérite des droits d'ouverture : il faut celui de créer un fichier.
-    let mut conn = options(plain, None)
+    let mut conn = options(plain, source_key)
         .create_if_missing(true)
         .connect()
         .await
@@ -234,7 +246,7 @@ pub async fn export_encrypted(
             .execute(&mut conn)
             .await;
         exported.map_err(|error| failed("chiffrement", error))?;
-        Ok(before)
+        Ok::<_, OpenError>(before)
     }
     .await;
     let _ = conn.close().await;

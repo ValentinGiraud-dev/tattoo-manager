@@ -335,6 +335,88 @@ SessionDocument
 * L'âge et la majorité se calculent à la date de la séance.
 * Les PDF d'origine sont dans `src-tauri/assets/forms/`. Le pré-remplissage écrit aux coordonnées des formulaires v1 (`services/form_pdf.rs`).
 
+Catégories de produits (migration 011)
+
+ProductCategory
+├── id
+├── parent_id       catégorie parente, vide pour une catégorie de premier niveau
+├── name            unique parmi les sœurs (sans tenir compte de la casse)
+├── created_at
+└── updated_at
+
+Lot (ajout)
+└── category_id     optionnel
+
+* Autant de niveaux que voulu : « Encres », « Aiguilles › RL › 3RL ».
+* Une catégorie ne peut pas être rangée dans elle-même ni dans une de ses sous-catégories.
+* Une catégorie inclut ses sous-catégories quand on filtre la liste des produits.
+* Supprimer une catégorie fait remonter son contenu (sous-catégories et lots) d'un niveau.
+* La catégorie d'un lot reste modifiable même après usage en séance : elle ne fait pas partie de son identité.
+* L'export « Registre de traçabilité » ajoute le chemin de la catégorie en dernière colonne.
+
+Fiches produit (migration 013)
+
+ProductSheet (table product_sheets)
+├── id
+├── name
+├── brand                 optionnelle
+├── category_id           rangement ; les lots de la fiche y sont rangés aussi
+├── single_use            type imposé aux lots de la fiche
+├── after_opening_months  modèle pour les prochains lots
+├── product_url
+├── created_at
+└── updated_at
+
+Lot (ajout)
+└── product_id     fiche produit ; vide pour un lot reçu avant les fiches
+
+* Une fiche = ce que l'atelier achète et réachète (« Dynamic Triple Black »). Un lot = une réception (numéro, péremption, pièces).
+* Identité d'une fiche : nom + marque, sans tenir compte de la casse.
+* Un lot reçu avec une fiche prend son nom (« Marque Nom »), son type, sa durée après ouverture, son lien et sa catégorie.
+* La migration n'ajoute que la table et la colonne : les lots existants restent sans fiche. L'écran Produits les signale et propose de créer leur fiche (avec leurs homonymes) ou d'en choisir une.
+* Rattacher un lot ne change ni son nom, ni son numéro, ni sa péremption : l'identité tracée reste celle enregistrée. Le type du lot doit être celui de la fiche.
+* Le type d'une fiche qui a des lots ne change plus. Une fiche qui a des lots ne se supprime pas.
+* Stock d'une fiche : somme des lots non périmés ; le stock des lots périmés est montré à part.
+* Table nommée product_sheets pour ne pas la confondre avec l'ancienne table products (supprimée en 010).
+
+Stock bas (migration 014)
+
+ProductSheet (ajout)
+└── low_stock_threshold   vide = seuil de la catégorie ; 0 = pas d'alerte ; N = alerte à N ou moins
+
+ProductCategory (ajout)
+├── low_stock_mode        EACH (chaque produit) | TOTAL (somme de la catégorie)
+└── low_stock_threshold   rempli avec le mode, sinon vide
+
+* Stock surveillé d'une fiche : ses lots non périmés (pièces en stock pour l'usage multiple). Les lots sans fiche ne sont pas surveillés.
+* Alerte quand le stock est inférieur ou égal au seuil (une fiche sans aucun lot est à 0).
+* Seuil d'une fiche : le sien ; sinon celui de la catégorie la plus proche réglée « chaque produit », en remontant les catégories parentes.
+* Une catégorie réglée « au total » alerte sur la somme du stock des fiches de sa branche (sous-catégories comprises), pour des produits interchangeables.
+* Alertes : accueil (« À traiter »), Produits (badge, filtre, alerte « au total »), fiche produit, et au moment de lier un produit à une séance.
+
+Journal d'audit (migration 012)
+
+AuditLog
+├── seq             numéro croissant (ordre du journal)
+├── occurred_at     horodatage UTC
+├── action          CREATE | UPDATE | DELETE, ou un événement de l'app
+├── entity          client, session, payment, lot, category… ou app
+├── entity_id
+├── label           nom lisible de la fiche au moment de l'écriture
+├── client_id       fiches auxquelles l'entrée se rattache (historique de fiche)
+├── session_id
+├── lot_id
+├── before_json     valeurs des champs avant
+└── after_json      valeurs des champs après
+
+* Chaque création, modification ou suppression dans une table métier ajoute une ligne, par déclencheur SQLite, dans la même transaction que l'écriture. Une modification qui ne change que `updated_at` n'en ajoute pas.
+* Le journal ne se modifie pas et ne s'efface pas (déclencheurs `audit_log_no_update` et `audit_log_no_delete`). Conservation illimitée. Restaurer une sauvegarde remet le journal de la sauvegarde, puis note la restauration.
+* Les réponses aux questionnaires de santé et de consentement ne sont jamais recopiées : seul le fait qu'elles changent est noté.
+* Pas de clé étrangère : une entrée survit à la suppression de la fiche.
+* Réception d'un lot à usage multiple : une seule entrée pour toutes les pièces (écrite par `lots::add_stock`), pas une par pièce.
+* Événements de l'app (entity = app) : protection activée, mot de passe changé, clé de secours renouvelée, Touch ID, verrouillage automatique, dossier de sauvegarde, sauvegarde créée, sauvegarde restaurée, export CSV.
+* L'empreinte des sauvegardes ignore les entrées « sauvegarde créée » : une sauvegarde ne compte pas comme un changement à sauvegarder.
+
 Anciennes tables supprimées (migration 010)
 
 Les tables products et session_products, remplacées par lots, units et session_usages depuis la migration 006, sont supprimées. La migration vérifie d'abord que chaque ancienne fiche a son lot et chaque ancien lien son équivalent ; sinon elle s'arrête sans rien supprimer.

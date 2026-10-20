@@ -489,7 +489,7 @@ Photos et documents associés viendront plus tard.
 
 # 📦 Produits
 
-Un produit à l'écran est un lot. Le lot porte ce qui est imprimé une fois : nom, numéro, dates, type, durée après ouverture, URL. L'identité est le couple nom + numéro, sans tenir compte de la casse.
+À l'écran, un produit est une **fiche produit** (nom, marque, catégorie, type, durée après ouverture, lien), et chaque réception est un **lot** rattaché à la fiche (migration 013). Le lot porte ce qui est imprimé une fois : nom, numéro, dates, type, durée après ouverture, URL. L'identité d'un lot est le couple nom + numéro, sans tenir compte de la casse. Les lots reçus avant les fiches restent sans fiche jusqu'à ce qu'on la crée ou la choisisse.
 
 ```text
 Lot
@@ -534,7 +534,7 @@ Exactement un des deux liens est rempli. Ces liens ne se suppriment pas : un lie
 
 ## Évolution — fiche produit
 
-Marque, référence, catégorie, fournisseur, date d'achat et emplacement ne sont pas dans ce stock. Ils pourront s'ajouter sur le lot quand le besoin sera défini.
+Marque et catégorie sont sur la fiche produit. Fournisseur, référence, date d'achat et emplacement pourront s'y ajouter quand le besoin sera défini.
 
 ---
 
@@ -704,7 +704,7 @@ Il faudra donc prévoir progressivement :
 - protection des fichiers ; *(fait : base SQLCipher, documents chiffrés)*
 - sauvegardes sécurisées ; *(fait : sauvegardes externes chiffrées)*
 - limitation des données stockées ;
-- journalisation des opérations importantes.
+- journalisation des opérations importantes. *(fait : journal d'audit de toutes les écritures, non modifiable)*
 
 Les choix définitifs dépendront notamment des besoins réels et du cadre réglementaire applicable.
 
@@ -952,7 +952,10 @@ La roadmap est indicative et pourra changer.
 - [x] Projets (pièce en plusieurs séances)
 - [x] Prix, acomptes (déduit, perdu, remboursé) et paiements
 - [x] Statut « Absent » et sort de l'acompte
-- [ ] Marques, fournisseurs, emplacement
+- [x] Catégories de produits libres, sur plusieurs niveaux (ex. Aiguilles › RL)
+- [x] Fiches produit au-dessus des lots (nom, marque, catégorie, type) ; lots existants rattachables
+- [x] Stock bas : seuil par fiche produit ou par catégorie (chaque produit ou au total), alertes accueil, Produits et séance
+- [ ] Fournisseurs, emplacement
 - [ ] Hygiène et stérilisation
 - [ ] Documents et photos
 - [x] Rapports (accueil : séances du jour, alertes, chiffres du mois ; écran Rapports par période)
@@ -967,6 +970,8 @@ La roadmap est indicative et pourra changer.
 - [x] Backup automatique (quotidien, au verrouillage, à la fermeture si changement ; 30 gardés)
 - [x] Chiffrement de la base (SQLCipher) et des documents
 - [x] Verrouillage : mot de passe, clé de secours, Touch ID, verrouillage automatique
+- [x] Rotation de la clé maître (rechiffrement complet, reprise après coupure)
+- [x] Journal d'audit : toutes les écritures, non modifiable ; écran « Journal » et historique sur les fiches client, séance et lot
 
 
 

@@ -8,6 +8,7 @@ import DashboardPage from "./features/dashboard/dashboard-page";
 import PlanningPage from "./features/planning/planning-page";
 import ProductsPage from "./features/products/products-page";
 import ReportsPage from "./features/reports/reports-page";
+import JournalPage from "./features/journal/journal-page";
 import SessionsPage from "./features/sessions/sessions-page";
 import SettingsPage from "./features/settings/settings-page";
 import { useSettingsStore } from "./stores/settings-store";
@@ -40,6 +41,7 @@ function App() {
           {page === "sessions" && <SessionsPage />}
           {page === "products" && <ProductsPage />}
           {page === "reports" && <ReportsPage />}
+          {page === "journal" && <JournalPage />}
           {page === "settings" && <SettingsPage />}
         </Fragment>
       </AppShell>

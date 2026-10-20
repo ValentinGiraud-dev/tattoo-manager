@@ -21,11 +21,13 @@ Les migrations s'exécutent au démarrage chez la tatoueuse, sur ses vraies donn
    - Clés étrangères `REFERENCES table(id)`.
    - Contraintes `CHECK` pour les énumérations et les règles simples, en plus des vérifications Rust.
    - Index sur chaque clé étrangère et chaque colonne filtrée ou triée.
+   - Journal d'audit : déclencheurs `audit_<table>_insert`, `_update`, `_delete` pour toute nouvelle table métier (modèle : `012_audit_log.sql`). Nouvelle colonne : recréer les trois déclencheurs avec la colonne. Le test `audit_triggers_cover_every_column` échoue sinon.
 3. **Ajout de colonne** : `ALTER TABLE … ADD COLUMN` nullable ou avec `DEFAULT`. SQLite ne sait pas ajouter une contrainte à une colonne existante : si c'est nécessaire, créer la nouvelle table, copier, puis renommer, dans la même migration, avec `PRAGMA foreign_key_check` à l'esprit.
 4. **Transformation de données** :
    - Écrire la règle de correspondance noir sur blanc dans un commentaire en tête du fichier.
    - Si des données peuvent être ambiguës, ajouter une garde qui fait échouer la migration avec un message français clair (modèle : trigger `migration_006_guard` dans `006_lots_and_stock.sql`). Mieux vaut bloquer que deviner.
    - Garder les anciennes tables tant qu'une version de transition est en circulation.
+   - Table reconstruite (`DROP` + `CREATE`) : ses déclencheurs disparaissent avec elle (validation `void_once`, journal `audit_*`). Les recréer dans la même migration.
 5. **Rust** : mettre à jour `models/`, les `SELECT` explicites et les structs d'entrée/sortie.
 6. **Tests** :
    - Les tests qui ouvrent une base temporaire appliquent toutes les migrations : `cargo test` doit passer.

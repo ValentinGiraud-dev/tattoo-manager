@@ -1,12 +1,12 @@
-import { PAGE_LABELS, useUIStore } from "../stores/ui-store";
+import { lastOrigin, PAGE_LABELS, useUIStore } from "../stores/ui-store";
 import { useGuardedLeave } from "./unsaved-changes";
 
 /**
  * Retour d'une fiche. Ouverte depuis un autre écran (accueil, séance…), elle y
- * ramène ; sinon elle revient à la liste de l'écran.
+ * ramène, puis à l'écran d'avant, et ainsi de suite ; sinon elle revient à la liste.
  */
 export function BackButton({ listLabel, onList }: { listLabel: string; onList: () => void }) {
-  const origin = useUIStore((state) => state.origin);
+  const origin = useUIStore(lastOrigin);
   const goBack = useUIStore((state) => state.goBack);
   const guardedLeave = useGuardedLeave();
   return (

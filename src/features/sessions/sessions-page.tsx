@@ -15,6 +15,8 @@ import { useUIStore, type SessionIntent } from "../../stores/ui-store";
 import { ConsentFormView } from "./consent-form";
 import { HealthFormView } from "./health-form";
 import { SessionBilling } from "./session-billing";
+import { lowStockAfterLink } from "../../lib/low-stock";
+import { AuditHistory } from "../journal/audit-history";
 import { SessionForm, type SessionDraft } from "./session-form";
 import { SessionPaperwork } from "./session-paperwork";
 import { StatusBadge } from "./session-status";
@@ -114,11 +116,17 @@ function SessionProducts({ session }: { session: SessionListItem }) {
         `Séance : ${clientName(session)} · ${formatIsoDate(session.date)}`,
       ],
       body: "Le lien restera dans l'historique de traçabilité : il ne pourra pas être supprimé.",
-      warning: item.expired
-        ? item.openedAt
-          ? `Limite d'utilisation dépassée : à utiliser jusqu'au ${formatIsoDate(item.usefulUntil)} (ouverture + durée après ouverture, ou péremption).`
-          : `Lot périmé : date de péremption ${formatIsoDate(item.expirationDate)}.`
-        : undefined,
+      warning:
+        [
+          item.expired
+            ? item.openedAt
+              ? `Limite d'utilisation dépassée : à utiliser jusqu'au ${formatIsoDate(item.usefulUntil)} (ouverture + durée après ouverture, ou péremption).`
+              : `Lot périmé : date de péremption ${formatIsoDate(item.expirationDate)}.`
+            : null,
+          lowStockAfterLink(item, quantity),
+        ]
+          .filter(Boolean)
+          .join(" ") || undefined,
       confirmLabel: item.expired ? "Lier quand même" : "Lier à la séance",
       cancelLabel: "Retour",
       tone: item.expired ? "danger" : "default",
@@ -226,6 +234,13 @@ function SessionProducts({ session }: { session: SessionListItem }) {
                           : "Scellé"}
                       {item.expired ? " · Périmé" : ""}
                     </span>
+                    {item.lowStock && (
+                      <span className="block text-[12px] text-warning">
+                        <span aria-hidden="true">⚠︎ </span>
+                        Stock bas : {item.productStock} restant
+                        {(item.productStock ?? 0) > 1 ? "s" : ""} pour ce produit
+                      </span>
+                    )}
                   </span>
                   {item.singleUse && (
                     <input
@@ -419,6 +434,7 @@ function SessionDetail({
         onOpenForm={(kind, paperwork) => setForm({ kind, paperwork })}
       />
       <SessionProducts session={session} />
+      <AuditHistory key={session.id} target={{ kind: "session", id: session.id }} />
     </div>
   );
 }

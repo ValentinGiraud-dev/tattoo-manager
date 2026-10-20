@@ -1,8 +1,11 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use super::error::LotError;
 use super::expiry;
+use super::product_sheets::{self, ProductSheetView};
 use super::sql::{self, NOW};
 use super::stock::{self, MovementDraft, MovementType};
 
@@ -81,6 +84,19 @@ pub struct LinkableItem {
     pub useful_until: String,
     #[sqlx(skip)]
     pub expired: bool,
+    /// Fiche produit du lot (vide : lot sans fiche, non surveillé).
+    pub product_id: Option<String>,
+    #[sqlx(skip)]
+    pub product_name: Option<String>,
+    /// Stock utilisable de la fiche (tous ses lots non périmés).
+    #[sqlx(skip)]
+    pub product_stock: Option<i64>,
+    /// Seuil de stock bas qui s'applique à la fiche, s'il y en a un.
+    #[sqlx(skip)]
+    pub alert_threshold: Option<i64>,
+    /// La fiche est déjà en stock bas.
+    #[sqlx(skip)]
+    pub low_stock: bool,
 }
 
 impl LinkableItem {
@@ -238,7 +254,8 @@ pub async fn list_linkable(
                     SELECT SUM(m.quantity) FROM stock_movements m WHERE m.lot_id = l.id
                 ), 0) AS stock,
                 CAST(NULL AS TEXT) AS opened_at,
-                l.after_opening_months
+                l.after_opening_months,
+                l.product_id
             FROM lots l
             WHERE l.single_use = 1
               AND COALESCE((
@@ -259,7 +276,8 @@ pub async fn list_linkable(
                 l.single_use,
                 1 AS stock,
                 u.opened_at,
-                l.after_opening_months
+                l.after_opening_months,
+                l.product_id
             FROM units u
             INNER JOIN lots l ON l.id = u.lot_id
             WHERE l.single_use = 0
@@ -283,10 +301,27 @@ pub async fn list_linkable(
     .fetch_all(pool)
     .await?;
     let today = expiry::today();
-    Ok(items
+    let mut items: Vec<LinkableItem> = items
         .into_iter()
         .map(|item| item.with_expiry(today))
-        .collect())
+        .collect();
+    // Stock de la fiche et seuil : l'écran prévient si le lien fait passer en stock bas.
+    if items.iter().any(|item| item.product_id.is_some()) {
+        let sheets: HashMap<String, ProductSheetView> = product_sheets::list_sheets(pool, None)
+            .await?
+            .into_iter()
+            .map(|sheet| (sheet.id.clone(), sheet))
+            .collect();
+        for item in &mut items {
+            if let Some(sheet) = item.product_id.as_ref().and_then(|id| sheets.get(id)) {
+                item.product_name = Some(sheet.display_name.clone());
+                item.product_stock = Some(sheet.stock);
+                item.alert_threshold = sheet.alert_threshold;
+                item.low_stock = sheet.low_stock;
+            }
+        }
+    }
+    Ok(items)
 }
 
 pub async fn link_session(

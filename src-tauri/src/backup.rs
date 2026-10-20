@@ -200,18 +200,16 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
     use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
-    use std::time::SystemTime;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     fn temp_dir() -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
             "tracink-backup-{}-{}",
             std::process::id(),
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
+            NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir(&dir).unwrap();
         dir
     }
 

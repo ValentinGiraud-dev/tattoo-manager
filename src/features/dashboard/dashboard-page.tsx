@@ -223,6 +223,8 @@ function AlertsPanel() {
   const dashboard = useDashboardStore((state) => state.dashboard);
   const openSession = useUIStore((state) => state.openSession);
   const openLot = useUIStore((state) => state.openLot);
+  const openSheet = useUIStore((state) => state.openSheet);
+  const setPage = useUIStore((state) => state.setPage);
   if (!dashboard) return null;
   const { alerts } = dashboard;
   const total = alertCount(alerts);
@@ -235,7 +237,8 @@ function AlertsPanel() {
       </h2>
       {total === 0 && (
         <p className="text-[13px] text-fg-muted">
-          Tout est à jour : aucun produit périmé, aucune séance à clôturer, aucun reste à payer.
+          Tout est à jour : aucun produit périmé ou en stock bas, aucune séance à clôturer, aucun
+          reste à payer.
         </p>
       )}
       {alerts.expired.length > 0 && (
@@ -250,6 +253,30 @@ function AlertsPanel() {
               onClick={() => openLot(item.lotId)}
               main={productLabel(item)}
               side={`depuis le ${formatIsoDate(item.usefulUntil)}`}
+            />
+          ))}
+        </AlertGroup>
+      )}
+      {alerts.lowStock.sheets.length + alerts.lowStock.categories.length > 0 && (
+        <AlertGroup
+          title="Stock bas"
+          tone="warning"
+          hint="À racheter : stock égal ou sous le seuil d’alerte (lots non périmés)."
+        >
+          {alerts.lowStock.sheets.map((alert) => (
+            <AlertItem
+              key={alert.sheetId}
+              onClick={() => openSheet(alert.sheetId)}
+              main={alert.displayName}
+              side={`${alert.stock} / seuil ${alert.threshold}`}
+            />
+          ))}
+          {alerts.lowStock.categories.map((alert) => (
+            <AlertItem
+              key={alert.categoryId}
+              onClick={() => setPage("products")}
+              main={`${alert.path} (au total)`}
+              side={`${alert.stock} / seuil ${alert.threshold}`}
             />
           ))}
         </AlertGroup>

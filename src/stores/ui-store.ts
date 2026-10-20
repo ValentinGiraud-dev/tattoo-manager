@@ -1,7 +1,14 @@
 import { create } from "zustand";
 
 export type AppPage =
-  "dashboard" | "planning" | "clients" | "sessions" | "products" | "reports" | "settings";
+  | "dashboard"
+  | "planning"
+  | "clients"
+  | "sessions"
+  | "products"
+  | "reports"
+  | "journal"
+  | "settings";
 
 export const PAGE_LABELS: Record<AppPage, string> = {
   dashboard: "Accueil",
@@ -10,6 +17,7 @@ export const PAGE_LABELS: Record<AppPage, string> = {
   sessions: "Séances",
   products: "Produits",
   reports: "Rapports",
+  journal: "Journal",
   settings: "Paramètres",
 };
 
@@ -30,10 +38,11 @@ type UIState = {
   /** Change à chaque passage par le menu : l'écran est remonté sur sa liste. */
   visit: number;
   /**
-   * Écran d'où vient une ouverture directe (lot ouvert depuis l'accueil, client
-   * depuis une séance…). Le bouton retour de la fiche y ramène.
+   * Écrans d'où viennent les ouvertures directes successives (lot ouvert depuis
+   * l'accueil, client depuis une séance…), le plus récent en dernier. Le bouton
+   * retour d'une fiche ramène au dernier, puis à celui d'avant, etc.
    */
-  origin: Origin | null;
+  history: Origin[];
   goBack: () => void;
   /** Fiche ouverte dans l'écran courant (tenue à jour par les écrans). */
   detail: OpenDetail | null;
@@ -50,17 +59,35 @@ type UIState = {
   lotIntent: string | null;
   openLot: (lotId: string) => void;
   takeLotIntent: () => string | null;
+  /** Fiche produit à ouvrir dans Produits. */
+  sheetIntent: string | null;
+  openSheet: (sheetId: string) => void;
+  takeSheetIntent: () => string | null;
   /** Client à ouvrir dans Clients. */
   clientIntent: string | null;
   openClient: (clientId: string) => void;
   takeClientIntent: () => string | null;
 };
 
+/** Au-delà, les retours les plus anciens sont oubliés. */
+const MAX_HISTORY = 20;
+
+/** Dernier écran d'où l'on vient, ou `null`. */
+export function lastOrigin(state: { history: Origin[] }): Origin | null {
+  return state.history[state.history.length - 1] ?? null;
+}
+
 export const useUIStore = create<UIState>((set, get) => {
-  /** Change d'écran en retenant l'écran de départ (s'il est différent). */
+  /** Change d'écran en retenant l'écran et la fiche de départ. */
   function jump(page: AppPage, patch: Partial<UIState>) {
-    const { page: from, detail, origin } = get();
-    set({ ...patch, page, origin: from === page ? origin : { page: from, detail } });
+    const { page: from, detail, history } = get();
+    // Même écran sans fiche ouverte (liste) : rien à retenir.
+    const stays = from === page && detail === null;
+    set({
+      ...patch,
+      page,
+      history: stays ? history : [...history, { page: from, detail }].slice(-MAX_HISTORY),
+    });
   }
 
   function reopen(detail: OpenDetail | null): Partial<UIState> {
@@ -73,12 +100,20 @@ export const useUIStore = create<UIState>((set, get) => {
   return {
     page: "dashboard",
     setPage: (page) =>
-      set((state) => ({ page, origin: null, detail: null, visit: state.visit + 1 })),
+      set((state) => ({ page, history: [], detail: null, visit: state.visit + 1 })),
     visit: 0,
-    origin: null,
+    history: [],
     goBack: () => {
-      const origin = get().origin;
-      if (origin) set({ page: origin.page, origin: null, ...reopen(origin.detail) });
+      const history = get().history;
+      const origin = history[history.length - 1];
+      if (!origin) return;
+      set({
+        page: origin.page,
+        history: history.slice(0, -1),
+        // La fiche d'arrivée se signale elle-même ; une liste n'en a pas.
+        detail: null,
+        ...reopen(origin.detail),
+      });
     },
     detail: null,
     setDetail: (detail) => {
@@ -101,6 +136,13 @@ export const useUIStore = create<UIState>((set, get) => {
     takeLotIntent: () => {
       const intent = get().lotIntent;
       if (intent) set({ lotIntent: null });
+      return intent;
+    },
+    sheetIntent: null,
+    openSheet: (sheetId) => jump("products", { sheetIntent: sheetId }),
+    takeSheetIntent: () => {
+      const intent = get().sheetIntent;
+      if (intent) set({ sheetIntent: null });
       return intent;
     },
     clientIntent: null,

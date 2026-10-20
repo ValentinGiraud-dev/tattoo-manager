@@ -4,6 +4,7 @@ import { formatIsoDate, formatTimestamp } from "../../lib/format";
 import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
 import { useClientsStore, type Client, type ClientInput } from "../../stores/clients-store";
 import { ClientHistory } from "./client-history";
+import { AuditHistory } from "../journal/audit-history";
 import { ClientProjects } from "./client-projects";
 import { toast } from "../../stores/toast-store";
 import { btnGhost, btnPrimary, fieldClass, labelClass } from "../../components/styles";
@@ -197,6 +198,7 @@ function ClientDetail({
       </dl>
       <ClientProjects key={`projects-${client.id}`} clientId={client.id} />
       <ClientHistory key={client.id} clientId={client.id} />
+      <AuditHistory key={`audit-${client.id}`} target={{ kind: "client", id: client.id }} />
     </div>
   );
 }

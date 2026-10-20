@@ -160,7 +160,7 @@ function ConfirmDialog({
         </div>
 
         {request.choices && request.choices.length > 0 && (
-          <fieldset className="mt-4 flex flex-col gap-2">
+          <fieldset className="mt-4 flex max-h-[45vh] flex-col gap-2 overflow-y-auto">
             <legend className="sr-only">{request.title}</legend>
             {request.choices.map((option) => (
               <label

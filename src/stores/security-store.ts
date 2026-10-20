@@ -12,6 +12,8 @@ export type SecurityStatus = {
   /** Base chiffrée sans fichier de clés : seule une restauration peut aider. */
   vaultMissing: boolean;
   autoLockMinutes: number;
+  /** Rechiffrement interrompu : l'ancien ou le nouveau mot de passe le termine. */
+  rotationPending: boolean;
 };
 
 export const AUTO_LOCK_CHOICES = [0, 2, 5, 10, 15, 30] as const;
@@ -33,6 +35,11 @@ type SecurityState = {
   lock: () => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   renewRecoveryKey: (password: string) => Promise<string>;
+  /**
+   * Rechiffre toutes les données sous une nouvelle clé, avec un nouveau mot de passe.
+   * Renvoie la nouvelle clé de secours (à montrer une seule fois).
+   */
+  rotateKey: (currentPassword: string, newPassword: string) => Promise<string>;
   setTouchId: (enabled: boolean) => Promise<void>;
   setAutoLock: (minutes: number) => Promise<void>;
   /** Après une restauration, depuis l'écran qui l'a lancée. */
@@ -97,6 +104,14 @@ export const useSecurityStore = create<SecurityState>((set, get) => {
       await invoke("change_password", { currentPassword, newPassword });
     },
     renewRecoveryKey: (password) => invoke<string>("renew_recovery_key", { password }),
+    rotateKey: async (currentPassword, newPassword) => {
+      try {
+        return await invoke<string>("rotate_master_key", { currentPassword, newPassword });
+      } finally {
+        // Interrompue après le début, l'app est verrouillée : l'écran doit le montrer.
+        await get().load();
+      }
+    },
     setTouchId: async (enabled) => {
       applyStatus(await invoke<SecurityStatus>("set_touch_id", { enabled }));
     },

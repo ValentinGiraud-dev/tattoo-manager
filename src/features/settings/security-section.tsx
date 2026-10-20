@@ -5,6 +5,7 @@ import { useConfirm } from "../../components/use-confirm";
 import { NewPasswordFields } from "../security/password-fields";
 import { EMPTY_PASSWORD, newPasswordProblem } from "../security/password-rules";
 import { RecoveryKeyPanel } from "../security/recovery-key-panel";
+import { KeyRotation } from "./key-rotation";
 import {
   AUTO_LOCK_CHOICES,
   errorMessage,
@@ -296,6 +297,8 @@ export function SecuritySection({ status }: { status: SecurityStatus }) {
       <ChangePasswordForm />
       <hr className="border-line" />
       <RecoveryKeyRenewal />
+      <hr className="border-line" />
+      <KeyRotation />
     </section>
   );
 }

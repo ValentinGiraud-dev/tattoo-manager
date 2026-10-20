@@ -87,6 +87,8 @@ fn needle(quantity: i64) -> CreateLotInput {
         after_opening_months: None,
         product_url: None,
         quantity,
+        category_id: None,
+        product_id: None,
     }
 }
 
@@ -100,6 +102,8 @@ fn ink(quantity: i64) -> CreateLotInput {
         after_opening_months: Some(6),
         product_url: None,
         quantity,
+        category_id: None,
+        product_id: None,
     }
 }
 
@@ -387,6 +391,9 @@ async fn migration_copies_existing_products_without_inventing_needle_stock() {
     exec_migration(&db.pool, "006_lots_and_stock.sql").await;
     // Les requêtes actuelles lisent aussi les tables des migrations suivantes.
     exec_migration(&db.pool, "007_session_usage_voids.sql").await;
+    exec_migration(&db.pool, "011_product_categories.sql").await;
+    exec_migration(&db.pool, "013_product_sheets.sql").await;
+    exec_migration(&db.pool, "014_low_stock.sql").await;
 
     let lots = lots::list_lots(&db.pool, None).await.unwrap();
     assert_eq!(lots.len(), 2);

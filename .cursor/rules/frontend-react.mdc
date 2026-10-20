@@ -23,7 +23,7 @@ src/
 
 - Menu : `setPage(page)`. Un clic remonte l'écran (`visit`) : il repart de sa liste.
 - Ouvrir une fiche depuis un autre écran : `openSession(id)`, `openLot(id)`, `openClient(id)`, `newSession(draft)`. L'écran cible lit la demande (`take…Intent`) puis l'efface.
-- Une fiche signale ce qu'elle affiche avec `setDetail({ kind, id })` ; le bouton retour (`components/back-button.tsx`) ramène à l'écran et à la fiche d'origine, sinon à la liste.
+- Une fiche signale ce qu'elle affiche avec `setDetail({ kind, id })` ; le bouton retour (`components/back-button.tsx`) ramène à l'écran et à la fiche d'origine, puis à celle d'avant (pile `history` dans `ui-store`, 20 niveaux au plus), sinon à la liste. Le menu vide la pile.
 
 ## Retours et tests
 

@@ -10,6 +10,7 @@ use sqlx::SqlitePool;
 use super::billing::{self, PaymentMethod};
 use super::error::LotError;
 use super::expiry;
+use super::low_stock::{self, LowStockReport};
 use super::sql::is_iso_date;
 use crate::models::SessionStatus;
 
@@ -209,6 +210,8 @@ pub struct Alerts {
     pub deposits_to_settle: Vec<DepositToSettle>,
     /// Séances terminées récemment sans questionnaire ou consentement signé.
     pub unsigned: Vec<DaySessionView>,
+    /// Fiches produit et catégories sous leur seuil d'alerte.
+    pub low_stock: LowStockReport,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -360,6 +363,7 @@ pub async fn get_dashboard(pool: &SqlitePool, today: NaiveDate) -> Result<Dashbo
             unpaid,
             deposits_to_settle,
             unsigned,
+            low_stock: low_stock::report(pool).await?,
         },
         month: summarize(pool, month_from, month_to).await?,
         previous_month: summarize(pool, previous_from, previous_to).await?,
