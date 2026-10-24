@@ -1,7 +1,6 @@
 //! Commandes de verrouillage, de coffre de clés, de Touch ID et de sauvegardes.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
@@ -10,6 +9,7 @@ use zeroize::Zeroizing;
 use crate::config::{self, AppPaths, AUTO_LOCK_CHOICES};
 use crate::database::{self, Db, OpenError, Unlocked};
 use crate::external_backup::{self, BackupEntry, Secret};
+use crate::security::attempts;
 use crate::security::biometry::{self, BiometryOutcome};
 use crate::security::rotation;
 use crate::security::vault::{KdfParams, MasterKey, Vault, VaultError};
@@ -88,24 +88,6 @@ async fn derive<T: Send + 'static>(
         .map_err(|error| error.to_string())
 }
 
-static FAILED_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
-
-/// Après cinq erreurs d'affilée, chaque nouvel essai attend quelques secondes.
-async fn slow_down_after_failures() {
-    let failures = FAILED_ATTEMPTS.load(Ordering::Relaxed);
-    if failures >= 5 {
-        let seconds = u64::from((failures - 4).min(6)) * 5;
-        tokio_sleep(seconds).await;
-    }
-}
-
-async fn tokio_sleep(seconds: u64) {
-    let _ = tauri::async_runtime::spawn_blocking(move || {
-        std::thread::sleep(std::time::Duration::from_secs(seconds));
-    })
-    .await;
-}
-
 fn open_error(error: OpenError) -> String {
     error.to_string()
 }
@@ -130,7 +112,7 @@ async fn open_with_key(
         audit::record_event_after(&pool, event::KEY_ROTATED, json!(null)).await;
     }
     db.set(Unlocked { pool, key });
-    FAILED_ATTEMPTS.store(0, Ordering::Relaxed);
+    attempts::clear_failures();
     Ok(status(db, paths))
 }
 
@@ -200,7 +182,7 @@ pub async fn unlock_with_password(
     if db.is_unlocked() {
         return Ok(status(&db, &paths));
     }
-    slow_down_after_failures().await;
+    attempts::slow_down().await;
     let vault = Vault::load(&paths.vault).map_err(|error| error.to_string())?;
     // Rechiffrement en cours : le nouveau mot de passe ouvre aussi l'app.
     let pending = rotation::pending_vault(&paths);
@@ -215,7 +197,7 @@ pub async fn unlock_with_password(
     })
     .await
     .inspect_err(|_| {
-        FAILED_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+        attempts::record_failure();
     })?;
     open_with_key(&app, &db, &paths, key)
         .await
@@ -233,7 +215,7 @@ pub async fn unlock_with_recovery_key(
     new_password: String,
 ) -> Result<SecurityStatus, String> {
     let _operation = db.operation.lock().await;
-    slow_down_after_failures().await;
+    attempts::slow_down().await;
     let mut vault = Vault::load(&paths.vault).map_err(|error| error.to_string())?;
     let recovery_key = Zeroizing::new(recovery_key);
     let new_password = Zeroizing::new(new_password);
@@ -249,7 +231,7 @@ pub async fn unlock_with_recovery_key(
         })
         .await
         .inspect_err(|_| {
-            FAILED_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+            attempts::record_failure();
         })?;
         if !db.is_unlocked() {
             open_with_key(&app, &db, &paths, key)
@@ -276,7 +258,7 @@ pub async fn unlock_with_recovery_key(
     })
     .await
     .inspect_err(|_| {
-        FAILED_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+        attempts::record_failure();
     })?;
     let (vault, key) = vault;
     vault
@@ -891,4 +873,14 @@ pub async fn restore_backup(
         status,
         previous_data: aside.display().to_string(),
     })
+}
+
+/// Efface les données métier de ce Mac. Le coffre et les réglages restent.
+#[tauri::command]
+pub async fn reset_app(
+    db: State<'_, Db>,
+    paths: State<'_, AppPaths>,
+    proof: crate::security::reset::ResetProof,
+) -> Result<(), String> {
+    crate::security::reset::run(&db, &paths, proof).await
 }

@@ -4,6 +4,7 @@ import { useUnsavedChanges } from "../../components/unsaved-changes";
 import { useSecurityStore } from "../../stores/security-store";
 import { useSettingsStore, type AppSettings } from "../../stores/settings-store";
 import { BackupSection } from "./backup-section";
+import { DangerZone } from "./danger-zone";
 import { SecuritySection } from "./security-section";
 import { toast } from "../../stores/toast-store";
 
@@ -113,6 +114,7 @@ export default function SettingsPage() {
           </dl>
         </section>
       )}
+      {securityStatus && <DangerZone touchIdEnabled={securityStatus.touchIdEnabled} />}
     </div>
   );
 }

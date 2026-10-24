@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ArchiveMention } from "../../components/archive-controls";
 import { SESSION_STATUS_LABELS } from "../../lib/labels";
 import { formatIsoDate } from "../../lib/format";
 import { useClientsStore } from "../../stores/clients-store";
@@ -64,7 +65,9 @@ export function ClientHistory({ clientId }: { clientId: string }) {
                 >
                   {formatIsoDate(session.date)}
                   {session.startTime ? ` · ${session.startTime}` : ""}
+                  {session.title ? ` · ${session.title}` : ""}
                   {session.bodyArea ? ` · ${session.bodyArea}` : ""}
+                  {session.archivedAt && <ArchiveMention>séance archivée</ArchiveMention>}
                 </button>
                 <p className="mt-0.5 text-[12.5px] text-fg-muted">
                   {SESSION_STATUS_LABELS[session.status]}
@@ -84,6 +87,8 @@ export function ClientHistory({ clientId }: { clientId: string }) {
                         >
                           {usage.name} · lot {usage.lotNumber}
                           {usage.singleUse && !usage.voidReason ? ` · ${usage.quantity}` : ""}
+                          {usage.lotArchived && <ArchiveMention>lot archivé</ArchiveMention>}
+                          {usage.productArchived && <ArchiveMention>fiche archivée</ArchiveMention>}
                         </button>
                         {usage.voidReason && (
                           <span className="text-fg-muted"> · lien annulé : {usage.voidReason}</span>

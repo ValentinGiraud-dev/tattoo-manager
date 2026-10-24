@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { ArchiveBanner, ArchiveMention } from "../../components/archive-controls";
 import { BackButton } from "../../components/back-button";
 import { DateSelector } from "../../components/date-selector";
 import { btnGhost, btnPrimary, labelClass } from "../../components/styles";
@@ -52,9 +53,14 @@ export function LotDetail({
     get,
     listAllSheets,
     setLotSheet,
+    previewLotRemoval,
+    deleteLot,
+    archiveLot,
+    restoreLot,
   } = useProductsStore();
   const openSession = useUIStore((state) => state.openSession);
   const confirm = useConfirm();
+  const [removal, setRemoval] = useState<"delete" | "archive" | null>(null);
   const [busy, setBusy] = useState(false);
   const [sessions, setSessions] = useState<LotSessionItem[]>([]);
   const [units, setUnits] = useState<UnitView[]>([]);
@@ -64,6 +70,90 @@ export function LotDetail({
   const loading = loadedFor !== lot.id;
   const [openDates, setOpenDates] = useState<Record<string, string | null>>({});
   const currentYear = new Date().getFullYear();
+  const locked = lot.archivedAt !== null;
+
+  useEffect(() => {
+    if (locked) return;
+    let cancelled = false;
+    previewLotRemoval(lot.id)
+      .then((preview) => {
+        if (!cancelled) setRemoval(preview.canDelete ? "delete" : "archive");
+      })
+      .catch(() => {
+        if (!cancelled) setRemoval(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [locked, lot.id, previewLotRemoval]);
+
+  async function removeOrArchive() {
+    setError(null);
+    let preview;
+    try {
+      preview = await previewLotRemoval(lot.id);
+    } catch (previewError) {
+      setError(String(previewError));
+      return;
+    }
+    if (preview.canDelete) {
+      const ok = await confirm({
+        title: "Supprimer ce lot ?",
+        details: [`${lot.name} · lot ${lot.lotNumber}`],
+        body: "Le lot, ses pièces et les entrées de stock d'ouverture seront supprimés. Cette action est irréversible.",
+        confirmLabel: "Supprimer le lot",
+        tone: "danger",
+      });
+      if (!ok) return;
+      setBusy(true);
+      try {
+        await deleteLot(lot.id);
+        toast.success("Lot supprimé");
+        onBack();
+      } catch (deleteError) {
+        setError(String(deleteError));
+        setBusy(false);
+      }
+      return;
+    }
+    const ok = await confirm({
+      title: "Archiver ce lot ?",
+      details: [`${lot.name} · lot ${lot.lotNumber}`, `${lot.stock} en stock`],
+      body: "Il quitte le stock, les alertes et le sélecteur des séances. La quantité reste inscrite sur le lot. Ses séances restent dans l'historique, avec la mention « lot archivé ».",
+      confirmLabel: "Archiver le lot",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await archiveLot(lot.id);
+      toast.success("Lot archivé");
+      onBack();
+    } catch (archiveError) {
+      setError(String(archiveError));
+      setBusy(false);
+    }
+  }
+
+  async function unarchive() {
+    const ok = await confirm({
+      title: "Désarchiver ce lot ?",
+      body: "Il revient dans le stock et le sélecteur des séances.",
+      confirmLabel: "Désarchiver",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await restoreLot(lot.id);
+      toast.success("Lot désarchivé");
+      onChange(await get(lot.id));
+    } catch (restoreError) {
+      setError(String(restoreError));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const fetchLot = useCallback(
     (lotId: string) => Promise.all([listSessions(lotId), listUnits(lotId), listMovements(lotId)]),
@@ -258,6 +348,11 @@ export function LotDetail({
       ) : (
         <BackButton listLabel="Produits" onList={onBack} />
       )}
+      {locked && (
+        <ArchiveBanner>
+          Lot archivé. Il est en lecture seule et absent du stock. Désarchive-le pour le modifier.
+        </ArchiveBanner>
+      )}
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
           <p className="mb-1 text-[12px] text-fg-faint">
@@ -269,9 +364,32 @@ export function LotDetail({
             Lot {lot.lotNumber} · {stockLabel(lot)}
           </p>
         </div>
-        <button type="button" onClick={onEdit} className={btnPrimary}>
-          Modifier
-        </button>
+        {locked ? (
+          <button
+            type="button"
+            onClick={() => void unarchive()}
+            disabled={busy}
+            className={btnPrimary}
+          >
+            {busy ? "Désarchivage…" : "Désarchiver"}
+          </button>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void removeOrArchive()}
+              disabled={busy}
+              className={btnGhost}
+            >
+              <span className="text-danger">
+                {busy ? "En cours…" : removal === "delete" ? "Supprimer" : "Archiver"}
+              </span>
+            </button>
+            <button type="button" onClick={onEdit} className={btnPrimary}>
+              Modifier
+            </button>
+          </div>
+        )}
       </div>
 
       {lot.expired && (
@@ -285,7 +403,10 @@ export function LotDetail({
         <section className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3">
           <p className="min-w-0 flex-1 text-[13.5px]">
             <span className="text-fg-faint">Fiche produit </span>
-            <span className="font-medium text-fg">{sheetName}</span>
+            <span className="font-medium text-fg">
+              {sheetName}
+              {lot.productArchived && <ArchiveMention>fiche archivée</ArchiveMention>}
+            </span>
           </p>
           <button
             type="button"
@@ -294,14 +415,16 @@ export function LotDetail({
           >
             Ouvrir la fiche
           </button>
-          <button
-            type="button"
-            onClick={() => void chooseSheet()}
-            disabled={busy}
-            className={btnGhost}
-          >
-            Changer…
-          </button>
+          {!locked && (
+            <button
+              type="button"
+              onClick={() => void chooseSheet()}
+              disabled={busy}
+              className={btnGhost}
+            >
+              Changer…
+            </button>
+          )}
         </section>
       ) : (
         <section
@@ -313,19 +436,21 @@ export function LotDetail({
             <span className="font-medium">Lot sans fiche produit.</span> Crée sa fiche ou choisis-en
             une : sans fiche, ce lot n&apos;est pas compté dans le stock du produit.
           </p>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => onCreateSheet(lot)} className={btnPrimary}>
-              Créer la fiche produit
-            </button>
-            <button
-              type="button"
-              onClick={() => void chooseSheet()}
-              disabled={busy}
-              className={btnGhost}
-            >
-              Choisir une fiche existante…
-            </button>
-          </div>
+          {!locked && (
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => onCreateSheet(lot)} className={btnPrimary}>
+                Créer la fiche produit
+              </button>
+              <button
+                type="button"
+                onClick={() => void chooseSheet()}
+                disabled={busy}
+                className={btnGhost}
+              >
+                Choisir une fiche existante…
+              </button>
+            </div>
+          )}
         </section>
       )}
 
@@ -344,7 +469,7 @@ export function LotDetail({
         </p>
       )}
 
-      {lot.singleUse ? (
+      {lot.singleUse && !locked ? (
         <MovementForm
           lot={lot}
           onSaved={(saved) => {
@@ -352,7 +477,7 @@ export function LotDetail({
             void refresh(saved.id);
           }}
         />
-      ) : (
+      ) : !lot.singleUse ? (
         <section>
           <h2 className="mb-2 text-[14px] font-medium">Pièces</h2>
           {loading ? (
@@ -398,7 +523,7 @@ export function LotDetail({
                         Remettre en stock
                       </button>
                     )}
-                    {unit.inStock && (
+                    {unit.inStock && !locked && (
                       <div className="mt-3 flex flex-col gap-3">
                         {unit.usedInSessions && unit.openedAt ? (
                           <p className="text-[12.5px] text-fg-muted">
@@ -469,7 +594,7 @@ export function LotDetail({
             </ul>
           )}
         </section>
-      )}
+      ) : null}
 
       <section>
         <h2 className="mb-2 text-[14px] font-medium">Mouvements</h2>
@@ -541,6 +666,8 @@ export function LotDetail({
                   className="text-left text-[14px] font-medium underline-offset-2 hover:underline"
                 >
                   {item.clientFirstName} {item.clientLastName}
+                  {item.clientArchived && <ArchiveMention>client archivé</ArchiveMention>}
+                  {item.sessionArchived && <ArchiveMention>séance archivée</ArchiveMention>}
                 </button>
                 <p className="mt-0.5 text-[12.5px] text-fg-muted">
                   {formatIsoDate(item.date)}

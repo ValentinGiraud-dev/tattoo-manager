@@ -93,7 +93,7 @@ async fn categories_nest_on_as_many_levels_as_needed() {
     );
 
     // Le lot porte le chemin complet de sa catégorie.
-    let listed = lots::list_lots(&pool, None).await.unwrap();
+    let listed = lots::list_lots(&pool, None, None).await.unwrap();
     let paths: Vec<_> = listed
         .iter()
         .map(|l| (l.name.as_str(), l.category_path.as_deref()))
@@ -232,6 +232,7 @@ async fn a_used_lot_keeps_its_identity_but_can_change_category() {
             body_area: None,
             description: None,
             notes: None,
+            title: None,
         },
     )
     .await

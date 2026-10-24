@@ -327,11 +327,12 @@ export default function PlanningPage() {
                       <span className="block w-full truncate">
                         {session.clientFirstName} {session.clientLastName}
                       </span>
-                      {height > 50 && (session.projectTitle || session.bodyArea) && (
-                        <span className="block w-full truncate text-fg-muted">
-                          {session.projectTitle ?? session.bodyArea}
-                        </span>
-                      )}
+                      {height > 50 &&
+                        (session.title || session.projectTitle || session.bodyArea) && (
+                          <span className="block w-full truncate text-fg-muted">
+                            {session.title ?? session.projectTitle ?? session.bodyArea}
+                          </span>
+                        )}
                     </button>
                   );
                 })}

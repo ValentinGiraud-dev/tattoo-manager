@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { btnGhost, btnPrimary, cardClass, fieldClass } from "../../components/styles";
+import { ArchiveFilter } from "../../components/archive-controls";
 import { matchesFilter, type CategoryFilter } from "../../lib/categories";
 import { formatIsoDate } from "../../lib/format";
 import { useProductsStore, type LotSummary, type ProductSheet } from "../../stores/products-store";
@@ -43,6 +44,7 @@ export default function ProductsPage() {
     lots,
     sheets,
     search,
+    showArchived,
     loading,
     error,
     load,
@@ -179,6 +181,7 @@ export default function ProductsPage() {
         onEdit={() => setView({ kind: "sheet-form", sheet: view.sheet, from: view })}
         onReceive={() => setView({ kind: "lot-form", sheetId: view.sheet.id, from: view })}
         onOpenLot={(lot) => setView({ kind: "lot", lot, from: view })}
+        onChanged={(sheet) => setView({ kind: "sheet", sheet, from: view.from })}
       />
     );
   }
@@ -202,7 +205,9 @@ export default function ProductsPage() {
     ? "Aucun résultat."
     : filterLabel
       ? "Aucun produit dans cette catégorie."
-      : "Aucun produit pour le moment.";
+      : showArchived
+        ? "Aucun produit archivé."
+        : "Aucun produit pour le moment.";
 
   return (
     <div className="mx-auto grid max-w-5xl grid-cols-1 items-start gap-8 px-8 py-10 md:grid-cols-[14rem_minmax(0,1fr)]">
@@ -227,39 +232,47 @@ export default function ProductsPage() {
               {loading ? "Chargement…" : `${shownCount} produit${shownCount === 1 ? "" : "s"}`}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {lowCount > 0 && (
-              <button
-                type="button"
-                aria-pressed={lowFilter}
-                onClick={() => setLowOnly(!lowFilter)}
-                className={[
-                  "inline-flex items-center rounded-pill px-3.5 py-1.5 text-[13px] font-medium transition-colors",
-                  lowFilter
-                    ? "bg-warning/20 text-fg"
-                    : "border border-warning/50 text-warning hover:bg-warning/10",
-                ].join(" ")}
-              >
-                <span aria-hidden="true" className="mr-1">
-                  ⚠︎
-                </span>
-                Stock bas ({lowCount})
-              </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ArchiveFilter
+              archived={showArchived}
+              onChange={(archived) => void load(search, archived)}
+            />
+            {!showArchived && (
+              <>
+                {lowCount > 0 && (
+                  <button
+                    type="button"
+                    aria-pressed={lowFilter}
+                    onClick={() => setLowOnly(!lowFilter)}
+                    className={[
+                      "inline-flex items-center rounded-pill px-3.5 py-1.5 text-[13px] font-medium transition-colors",
+                      lowFilter
+                        ? "bg-warning/20 text-fg"
+                        : "border border-warning/50 text-warning hover:bg-warning/10",
+                    ].join(" ")}
+                  >
+                    <span aria-hidden="true" className="mr-1">
+                      ⚠︎
+                    </span>
+                    Stock bas ({lowCount})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setView({ kind: "sheet-form", from: list })}
+                  className={btnGhost}
+                >
+                  Nouvelle fiche produit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setView({ kind: "lot-form", from: list })}
+                  className={btnPrimary}
+                >
+                  Recevoir un lot
+                </button>
+              </>
             )}
-            <button
-              type="button"
-              onClick={() => setView({ kind: "sheet-form", from: list })}
-              className={btnGhost}
-            >
-              Nouvelle fiche produit
-            </button>
-            <button
-              type="button"
-              onClick={() => setView({ kind: "lot-form", from: list })}
-              className={btnPrimary}
-            >
-              Recevoir un lot
-            </button>
           </div>
         </div>
 
@@ -331,7 +344,7 @@ export default function ProductsPage() {
         {!loading && shownCount === 0 ? (
           <div className={`${cardClass} px-5 py-10 text-center`}>
             <p className="text-[14px] text-fg-muted">{emptyText}</p>
-            {!search && (
+            {!search && !showArchived && (
               <button
                 type="button"
                 onClick={() => setView({ kind: "sheet-form", from: list })}

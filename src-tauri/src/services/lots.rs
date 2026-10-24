@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+use super::archive::{LOT_LOCKED, SHEET_LOCKED};
 use super::categories;
 use super::error::LotError;
 use super::expiry;
@@ -27,6 +28,8 @@ SELECT
     l.product_id,
     p.name AS product_name,
     p.brand AS product_brand,
+    l.archived_at,
+    (p.archived_at IS NOT NULL) AS product_archived,
     l.created_at,
     l.updated_at,
     CASE
@@ -98,6 +101,8 @@ pub struct LotSummary {
     pub product_id: Option<String>,
     pub product_name: Option<String>,
     pub product_brand: Option<String>,
+    pub archived_at: Option<String>,
+    pub product_archived: bool,
     pub created_at: String,
     pub updated_at: String,
     pub stock: i64,
@@ -246,17 +251,20 @@ fn check_quantity(single_use: bool, quantity: i64) -> Result<(), LotError> {
 pub async fn list_lots(
     pool: &SqlitePool,
     search: Option<String>,
+    archived: Option<bool>,
 ) -> Result<Vec<LotSummary>, LotError> {
     let pattern = sql::like_pattern(search);
     let sql = format!(
         "{SUMMARY_SELECT}
-         WHERE ?1 IS NULL
+         WHERE (?2 IS NULL OR (l.archived_at IS NOT NULL) = ?2)
+           AND (?1 IS NULL
             OR l.name LIKE ?1 ESCAPE '\\'
-            OR l.lot_number LIKE ?1 ESCAPE '\\'
+            OR l.lot_number LIKE ?1 ESCAPE '\\')
          ORDER BY l.name COLLATE NOCASE, l.lot_number COLLATE NOCASE"
     );
     let lots = sqlx::query_as::<_, LotSummary>(&sql)
         .bind(pattern)
+        .bind(archived)
         .fetch_all(pool)
         .await?;
     let today = expiry::today();
@@ -304,7 +312,19 @@ pub async fn find_lot(
 pub async fn create_lot(pool: &SqlitePool, input: CreateLotInput) -> Result<LotSummary, LotError> {
     let mut tx = pool.begin().await?;
     let sheet = match sql::clean(input.product_id) {
-        Some(id) => Some(product_sheets::template(&mut tx, &id).await?),
+        Some(id) => {
+            let sheet = product_sheets::template(&mut tx, &id).await?;
+            let archived: Option<String> =
+                sqlx::query_scalar("SELECT archived_at FROM product_sheets WHERE id = ?")
+                    .bind(&sheet.id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten();
+            if archived.is_some() {
+                return Err(LotError::Invalid(SHEET_LOCKED));
+            }
+            Some(sheet)
+        }
         None => None,
     };
     let (name, single_use, after_opening_months, product_url, category_id) = match &sheet {
@@ -442,6 +462,13 @@ pub async fn update_lot(
     else {
         return Err(LotError::NotFound);
     };
+    let archived: Option<String> = sqlx::query_scalar("SELECT archived_at FROM lots WHERE id = ?")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if archived.is_some() {
+        return Err(LotError::Invalid(LOT_LOCKED));
+    }
     let normalized = normalize_shared(
         input.name,
         input.lot_number,
@@ -595,5 +622,124 @@ pub(crate) async fn add_stock(
         )
         .await?;
     }
+    Ok(())
+}
+
+const LOT_HISTORY_SQL: &str = "SELECT
+    (SELECT COUNT(*) FROM session_usages su
+        LEFT JOIN units u ON u.id = su.unit_id
+        WHERE su.lot_id = ?1 OR u.lot_id = ?1)
+  + (SELECT COUNT(*) FROM client_archive_movements WHERE lot_id = ?1)
+  + (SELECT COUNT(*) FROM units WHERE lot_id = ?1 AND opened_at IS NOT NULL)
+  + (SELECT COUNT(*) FROM stock_movements
+        WHERE lot_id = ?1 AND (type != 'PURCHASE' OR session_id IS NOT NULL))";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LotRemoval {
+    pub lot_id: String,
+    pub archived: bool,
+    pub can_delete: bool,
+    pub session_count: i64,
+}
+
+pub async fn removal_preview(pool: &SqlitePool, id: &str) -> Result<LotRemoval, LotError> {
+    let lot = get_lot(pool, id).await?;
+    let history: i64 = sqlx::query_scalar(LOT_HISTORY_SQL)
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+    Ok(LotRemoval {
+        lot_id: lot.id,
+        archived: lot.archived_at.is_some(),
+        can_delete: history == 0 && lot.archived_at.is_none(),
+        session_count: lot.session_count,
+    })
+}
+
+pub async fn delete_lot(pool: &SqlitePool, id: &str) -> Result<(), LotError> {
+    let mut tx = pool.begin().await?;
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM lots WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if exists.is_none() {
+        return Err(LotError::NotFound);
+    }
+    let history: i64 = sqlx::query_scalar(LOT_HISTORY_SQL)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if history > 0 {
+        return Err(LotError::Invalid(
+            "Ce lot a un historique : il ne peut pas être supprimé. Archive-le pour le retirer des listes.",
+        ));
+    }
+    sqlx::query("DELETE FROM stock_movements WHERE lot_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM units WHERE lot_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM lots WHERE id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn archive_lot(pool: &SqlitePool, id: &str) -> Result<(), LotError> {
+    let mut tx = pool.begin().await?;
+    let archived_at: Option<Option<String>> =
+        sqlx::query_scalar("SELECT archived_at FROM lots WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some(archived_at) = archived_at else {
+        return Err(LotError::NotFound);
+    };
+    if archived_at.is_some() {
+        return Err(LotError::Invalid("Ce lot est déjà archivé"));
+    }
+    let history: i64 = sqlx::query_scalar(LOT_HISTORY_SQL)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if history == 0 {
+        return Err(LotError::Invalid(
+            "Rien n'est relié à ce lot : supprime-le.",
+        ));
+    }
+    sqlx::query(&format!(
+        "UPDATE lots SET archived_at = {NOW}, updated_at = {NOW} WHERE id = ?"
+    ))
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn restore_lot(pool: &SqlitePool, id: &str) -> Result<(), LotError> {
+    let archived_at: Option<Option<String>> =
+        sqlx::query_scalar("SELECT archived_at FROM lots WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+    let Some(archived_at) = archived_at else {
+        return Err(LotError::NotFound);
+    };
+    if archived_at.is_none() {
+        return Err(LotError::Invalid("Ce lot n'est pas archivé"));
+    }
+    sqlx::query(&format!(
+        "UPDATE lots SET archived_at = NULL, updated_at = {NOW} WHERE id = ?"
+    ))
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }

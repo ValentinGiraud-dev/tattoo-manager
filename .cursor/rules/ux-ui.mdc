@@ -29,9 +29,11 @@ Trois niveaux. Choisis selon l'effet de l'action, pas selon l'écran.
 - enregistrer une séance sur un créneau déjà occupé (avertissement, pas un blocage) ;
 - utiliser un lot ou un flacon périmé (avertissement explicite, pas un blocage) ;
 - modifier l'identité d'un lot ou le client d'une séance, quand c'est encore permis ;
-- fermer un formulaire qui contient des modifications non enregistrées (« Abandonner les modifications ? »).
+- fermer un formulaire qui contient des modifications non enregistrées (« Abandonner les modifications ? ») ;
+- archiver une fiche (client, séance, projet, lot, fiche produit) : elle quitte les listes actives, le dialogue dit ce qui reste visible ;
+- désarchiver une fiche.
 
-**Confirmation renforcée pour :** restaurer une sauvegarde, importer des données qui remplacent l'existant, anonymiser ou effacer un client. Avec `useConfirm`, option `typeToConfirm: "RESTAURER"` (le bouton reste inactif tant que le mot n'est pas recopié).
+**Confirmation renforcée pour :** restaurer une sauvegarde, importer des données qui remplacent l'existant, réinitialiser les données de ce Mac, anonymiser ou effacer un client. Avec `useConfirm`, option `typeToConfirm: "RESTAURER"` (le bouton reste inactif tant que le mot n'est pas recopié). Réinitialiser les données : `typeToConfirm: "RÉINITIALISER"`, plus le mot de passe Tracink ou Touch ID s'il est activé. Réinitialiser toute l'installation (mot de passe, Touch ID et réglages compris) : `typeToConfirm: "EFFACER"`, même preuve. Supprimer un client sans aucune trace : `typeToConfirm: "SUPPRIMER"`. Une fiche qui a des traces ne se supprime pas, elle s'archive.
 
 **Contenu d'un dialogue :**
 

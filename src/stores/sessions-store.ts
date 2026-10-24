@@ -8,6 +8,7 @@ export interface SessionListItem {
   clientId: string;
   projectId: string | null;
   projectTitle: string | null;
+  title: string | null;
   date: string;
   /** Heure locale de début « HH:MM ». */
   startTime: string | null;
@@ -18,6 +19,8 @@ export interface SessionListItem {
   bodyArea: string | null;
   description: string | null;
   notes: string | null;
+  /** La tatoueuse a expliqué les règles d'hygiène après le tatouage. */
+  aftercareExplained: boolean;
   createdAt: string;
   updatedAt: string;
   clientFirstName: string;
@@ -28,11 +31,15 @@ export interface SessionListItem {
   moneyCount: number;
   /** Absences du client, toutes séances confondues. */
   clientNoShowCount: number;
+  archivedAt: string | null;
+  clientArchived: boolean;
+  projectArchived: boolean;
 }
 
 export interface SessionInput {
   clientId: string;
   projectId: string | null;
+  title: string | null;
   date: string;
   startTime: string | null;
   durationMinutes: number | null;
@@ -43,15 +50,52 @@ export interface SessionInput {
   notes: string | null;
 }
 
+/** Champs d'enregistrement à partir d'une séance déjà chargée. */
+export function sessionToInput(
+  session: SessionListItem,
+  status: SessionStatus = session.status,
+): SessionInput {
+  return {
+    clientId: session.clientId,
+    projectId: session.projectId,
+    title: session.title,
+    date: session.date,
+    startTime: session.startTime,
+    durationMinutes: session.durationMinutes,
+    status,
+    priceCents: session.priceCents,
+    bodyArea: session.bodyArea,
+    description: session.description,
+    notes: session.notes,
+  };
+}
+
+export interface SessionRemoval {
+  sessionId: string;
+  archived: boolean;
+  canDelete: boolean;
+  usageCount: number;
+  formCount: number;
+  documentCount: number;
+  paymentCount: number;
+  depositCount: number;
+}
+
 interface SessionsState {
   sessions: SessionListItem[];
   search: string;
+  showArchived: boolean;
   loading: boolean;
   error: string | null;
-  load: (search?: string) => Promise<void>;
+  load: (search?: string, archived?: boolean) => Promise<void>;
   create: (input: SessionInput) => Promise<SessionListItem>;
   update: (id: string, input: SessionInput) => Promise<SessionListItem>;
+  setAftercareExplained: (id: string, explained: boolean) => Promise<SessionListItem>;
   get: (id: string) => Promise<SessionListItem>;
+  previewRemoval: (id: string) => Promise<SessionRemoval>;
+  remove: (id: string) => Promise<void>;
+  archive: (id: string) => Promise<void>;
+  restore: (id: string) => Promise<void>;
   /** Séances entre deux dates incluses (planning). */
   between: (from: string, to: string) => Promise<SessionListItem[]>;
   /** Séances prévues ou faites qui chevauchent le créneau, le même jour. */
@@ -66,12 +110,13 @@ interface SessionsState {
 export const useSessionsStore = create<SessionsState>((set, get) => ({
   sessions: [],
   search: "",
+  showArchived: false,
   loading: false,
   error: null,
-  load: async (search = get().search) => {
-    set({ loading: true, search });
+  load: async (search = get().search, archived = get().showArchived) => {
+    set({ loading: true, search, showArchived: archived });
     try {
-      const sessions = await invoke<SessionListItem[]>("list_sessions", { search });
+      const sessions = await invoke<SessionListItem[]>("list_sessions", { search, archived });
       set({ sessions, loading: false, error: null });
     } catch (error) {
       set({ loading: false, error: String(error) });
@@ -87,7 +132,25 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     await get().load();
     return session;
   },
+  setAftercareExplained: async (id, explained) => {
+    const session = await invoke<SessionListItem>("set_aftercare_explained", { id, explained });
+    await get().load();
+    return session;
+  },
   get: (id) => invoke<SessionListItem>("get_session", { id }),
+  previewRemoval: (id) => invoke<SessionRemoval>("preview_session_removal", { id }),
+  remove: async (id) => {
+    await invoke("delete_session", { id });
+    await get().load();
+  },
+  archive: async (id) => {
+    await invoke("archive_session", { id });
+    await get().load();
+  },
+  restore: async (id) => {
+    await invoke("restore_session", { id });
+    await get().load();
+  },
   between: (from, to) => invoke<SessionListItem[]>("list_sessions_between", { from, to }),
   overlaps: (date, startTime, durationMinutes, excludeId) =>
     invoke<SessionListItem[]>("find_session_overlaps", {

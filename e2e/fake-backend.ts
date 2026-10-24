@@ -5,20 +5,27 @@
  *
  * Cette fonction est sérialisée et exécutée dans la page : elle ne doit rien importer.
  */
-export type Scenario = { locked: "setup" | "locked" | "unlocked"; rotationPending?: boolean };
+export type Scenario = {
+  locked: "setup" | "locked" | "unlocked";
+  rotationPending?: boolean;
+  /** Touch ID proposé dans les réglages et pour la réinitialisation. */
+  touchId?: boolean;
+};
 
 export function installFakeBackend(scenario: Scenario) {
   const TODAY = "2026-10-15";
   const stamp = "2026-10-01T10:00:00";
+  const appReset = sessionStorage.getItem("tracink:app-reset") === "1";
   const status = {
-    state:
-      scenario.locked === "setup"
+    state: appReset
+      ? "SETUP_REQUIRED"
+      : scenario.locked === "setup"
         ? "SETUP_REQUIRED"
         : scenario.locked === "locked"
           ? "LOCKED"
           : "UNLOCKED",
-    touchIdAvailable: false,
-    touchIdEnabled: false,
+    touchIdAvailable: scenario.touchId === true && !appReset,
+    touchIdEnabled: scenario.touchId === true && !appReset,
     hasPlaintextData: false,
     vaultMissing: false,
     autoLockMinutes: 10,
@@ -38,6 +45,29 @@ export function installFakeBackend(scenario: Scenario) {
       notes: null,
       createdAt: stamp,
       updatedAt: stamp,
+      archivedAt: null as string | null,
+    },
+  ];
+  const projects = [
+    {
+      id: "p1",
+      clientId: "c1",
+      clientFirstName: "Léa",
+      clientLastName: "Martin",
+      title: "Arbre",
+      bodyArea: "Avant-bras" as string | null,
+      description: null,
+      quotedPriceCents: null,
+      status: "ACTIVE" as "ACTIVE" | "COMPLETED" | "ABANDONED",
+      createdAt: stamp,
+      updatedAt: stamp,
+      sessionCount: 1,
+      completedCount: 0,
+      nextSessionDate: null,
+      sessionsPriceCents: 0,
+      heldDepositsCents: 0,
+      receivedCents: 0,
+      archivedAt: null as string | null,
     },
   ];
   const session = {
@@ -45,6 +75,7 @@ export function installFakeBackend(scenario: Scenario) {
     clientId: "c1",
     projectId: null,
     projectTitle: null,
+    title: null,
     date: TODAY,
     startTime: "14:00",
     durationMinutes: 120,
@@ -53,6 +84,7 @@ export function installFakeBackend(scenario: Scenario) {
     bodyArea: "Avant-bras",
     description: null,
     notes: null,
+    aftercareExplained: false,
     createdAt: stamp,
     updatedAt: stamp,
     clientFirstName: "Léa",
@@ -60,6 +92,9 @@ export function installFakeBackend(scenario: Scenario) {
     usageCount: 0,
     moneyCount: 0,
     clientNoShowCount: 0,
+    archivedAt: null as string | null,
+    clientArchived: false,
+    projectArchived: false,
   };
   const lot = {
     id: "l1",
@@ -83,6 +118,8 @@ export function installFakeBackend(scenario: Scenario) {
     movementCount: 1,
     sessionCount: 0,
     expired: true,
+    archivedAt: null as string | null,
+    productArchived: false,
   };
   const daySession = {
     id: "s1",
@@ -90,6 +127,7 @@ export function installFakeBackend(scenario: Scenario) {
     clientFirstName: "Léa",
     clientLastName: "Martin",
     projectTitle: null,
+    title: null,
     date: TODAY,
     startTime: "14:00",
     durationMinutes: 120,
@@ -279,6 +317,7 @@ export function installFakeBackend(scenario: Scenario) {
       alertThreshold: applied(sheet)?.threshold ?? null,
       alertSource: applied(sheet)?.source ?? null,
       lowStock: false,
+      archivedAt: (sheet as Sheet & { archivedAt?: string | null }).archivedAt ?? null,
     };
   }
   function sheetViews() {
@@ -351,6 +390,16 @@ export function installFakeBackend(scenario: Scenario) {
     }
     return out;
   }
+  const wiped = sessionStorage.getItem("tracink:data-reset") === "1";
+  const emptyAlerts = {
+    expired: [],
+    expiringSoon: [],
+    sessionsToClose: [],
+    unpaid: [],
+    depositsToSettle: [],
+    unsigned: [],
+    lowStock: { sheets: [], categories: [] },
+  };
   const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
     get_security_status: () => status,
     setup_security: () => {
@@ -383,35 +432,38 @@ export function installFakeBackend(scenario: Scenario) {
     run_backup_if_due: () => ({ result: "SKIPPED", settings: backup }),
     get_dashboard: () => ({
       today: TODAY,
-      todaySessions: [daySession],
+      todaySessions: wiped ? [] : [daySession],
       upcoming: [],
-      alerts: {
-        expired: [
-          {
-            lotId: "l1",
-            name: "Encre rouge",
-            lotNumber: "ER-1",
-            kind: "LOT",
-            count: 4,
-            openedAt: null,
-            usefulUntil: "2026-09-01",
-            expired: true,
+      alerts: wiped
+        ? emptyAlerts
+        : {
+            expired: [
+              {
+                lotId: "l1",
+                name: "Encre rouge",
+                lotNumber: "ER-1",
+                kind: "LOT",
+                count: 4,
+                openedAt: null,
+                usefulUntil: "2026-09-01",
+                expired: true,
+              },
+            ],
+            expiringSoon: [],
+            sessionsToClose: [],
+            unpaid: [],
+            depositsToSettle: [],
+            unsigned: [],
+            lowStock: lowStockReport(),
           },
-        ],
-        expiringSoon: [],
-        sessionsToClose: [],
-        unpaid: [],
-        depositsToSettle: [],
-        unsigned: [],
-        lowStock: lowStockReport(),
-      },
       month: period("2026-10-01", "2026-10-31"),
       previousMonth: period("2026-09-01", "2026-09-30"),
     }),
     get_period_summary: ({ from, to }) => period(String(from), String(to)),
     export_csv: ({ path }) => ({ path, rows: 12 }),
     "plugin:dialog|save": () => "/Users/atelier/Documents/export.csv",
-    list_clients: () => clients,
+    list_clients: ({ archived }) =>
+      wiped ? [] : clients.filter((client) => Boolean(client.archivedAt) === Boolean(archived)),
     get_client: ({ id }) => clients.find((client) => client.id === id),
     create_client: ({ input }) => {
       const client = {
@@ -419,15 +471,58 @@ export function installFakeBackend(scenario: Scenario) {
         id: `c${clients.length + 1}`,
         createdAt: stamp,
         updatedAt: stamp,
+        archivedAt: null,
       } as (typeof clients)[number];
       clients.push(client);
       return client;
     },
+    preview_client_archive: ({ id }) => {
+      const linked = session.clientId === id;
+      const client = clients.find((item) => item.id === id);
+      return {
+        clientId: id,
+        archived: Boolean(client?.archivedAt),
+        canDelete: !linked && !client?.archivedAt,
+        sessions: linked ? [{ id: session.id, date: session.date, upcoming: true }] : [],
+        projects: [],
+        depositCount: 0,
+        paymentCount: 0,
+        documentCount: 0,
+        stock: linked
+          ? [{ lotId: lot.id, name: lot.name, lotNumber: lot.lotNumber, quantity: 1 }]
+          : [],
+      };
+    },
+    delete_client: ({ id }) => {
+      const index = clients.findIndex((client) => client.id === id);
+      if (index >= 0) clients.splice(index, 1);
+    },
+    archive_client: ({ id }) => {
+      const client = clients.find((item) => item.id === id);
+      if (client) client.archivedAt = stamp;
+    },
+    restore_client: ({ id }) => {
+      const client = clients.find((item) => item.id === id);
+      if (client) client.archivedAt = null;
+    },
     list_client_sessions: () => [session],
     list_client_usages: () => [],
-    list_client_projects: () => [],
-    list_sessions: () => [session],
+    list_client_projects: ({ clientId }) =>
+      projects.filter((project) => project.clientId === clientId),
+    list_sessions: ({ archived }) => {
+      if (wiped) return [];
+      return Boolean(session.archivedAt) === Boolean(archived) ? [session] : [];
+    },
     get_session: () => session,
+    update_session: ({ input }) => {
+      const next = input as { status?: typeof session.status };
+      if (next.status) session.status = next.status;
+      return session;
+    },
+    set_aftercare_explained: ({ explained }) => {
+      session.aftercareExplained = explained === true;
+      return session;
+    },
     list_session_usages: () => [],
     get_session_paperwork: () => ({
       sessionId: "s1",
@@ -482,15 +577,21 @@ export function installFakeBackend(scenario: Scenario) {
       categories.splice(categories.indexOf(category), 1);
       return null;
     },
-    list_lots: () => {
+    list_lots: ({ archived }) => {
+      if (wiped) return [];
       tree();
-      return lots;
+      if (archived === null || archived === undefined) return lots;
+      return lots.filter((item) => Boolean(item.archivedAt) === Boolean(archived));
     },
     get_lot: ({ id }) => {
       tree();
       return lots.find((l) => l.id === id) ?? lot;
     },
-    list_product_sheets: () => sheetViews(),
+    list_product_sheets: ({ archived }) => {
+      const views = sheetViews();
+      if (archived === null || archived === undefined) return views;
+      return views.filter((item) => Boolean(item.archivedAt) === Boolean(archived));
+    },
     get_product_sheet: ({ id }) => sheetViews().find((p) => p.id === id),
     get_low_stock_report: () => lowStockReport(),
     set_category_low_stock: ({ id, setting }) => {
@@ -561,7 +662,38 @@ export function installFakeBackend(scenario: Scenario) {
       return created;
     },
     list_lot_sessions: () => [],
-    list_lot_units: () => [],
+    list_lot_units: ({ lotId }) => {
+      const target = lots.find((item) => item.id === lotId);
+      if (!target || target.singleUse) return [];
+      return [
+        {
+          id: `${lotId}-open`,
+          lotId,
+          openedAt: "2026-10-16",
+          inStock: true,
+          exitType: null,
+          exitMovementId: null,
+          createdAt: stamp,
+          updatedAt: stamp,
+          usedInSessions: true,
+          usefulUntil: "2027-10-16",
+          expired: false,
+        },
+        {
+          id: `${lotId}-sealed`,
+          lotId,
+          openedAt: null,
+          inStock: true,
+          exitType: null,
+          exitMovementId: null,
+          createdAt: stamp,
+          updatedAt: stamp,
+          usedInSessions: false,
+          usefulUntil: "2027-12-01",
+          expired: false,
+        },
+      ];
+    },
     list_lot_movements: () => [],
     list_audit_entries: ({ query }) => {
       const q = query as Record<string, string | number | null | undefined>;
@@ -581,6 +713,27 @@ export function installFakeBackend(scenario: Scenario) {
       };
     },
     "plugin:updater|check": () => null,
+    reset_app: ({ proof }) => {
+      const given = proof as { method?: string; password?: string; scope?: string } | undefined;
+      const method = given?.method;
+      if (method === "password") {
+        if (given.password !== PASSWORD) {
+          return fail("Mot de passe incorrect.");
+        }
+      } else if (method === "touchId") {
+        if (!status.touchIdEnabled) {
+          return fail("Touch ID n'est pas activé. Saisissez le mot de passe.");
+        }
+      } else {
+        return fail("Saisissez le mot de passe.");
+      }
+      if (given.scope === "installation") {
+        sessionStorage.setItem("tracink:app-reset", "1");
+      } else {
+        sessionStorage.setItem("tracink:data-reset", "1");
+      }
+      return null;
+    },
     rotate_master_key: ({ currentPassword, newPassword }) => {
       if (currentPassword !== PASSWORD) return fail("Le mot de passe actuel est incorrect.");
       if (newPassword === currentPassword) {

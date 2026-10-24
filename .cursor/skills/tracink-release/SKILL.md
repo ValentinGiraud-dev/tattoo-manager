@@ -7,43 +7,38 @@ description: Publier une nouvelle version de Tracink pour macOS (numéro de vers
 
 L'app se met à jour seule via `tauri-plugin-updater`, qui lit
 `https://github.com/ValentinGiraud-dev/tattoo-manager/releases/latest/download/latest.json`.
-Une release mal formée bloque les mises à jour chez la tatoueuse : suis chaque étape.
+Une release mal formée bloque les mises à jour chez la tatoueuse.
 
-## 1. Prérequis
-
-- Arbre propre (`git status` vide), sur la branche principale à jour.
-- `cargo test`, `cargo clippy --all-targets -- -D warnings` et `pnpm build` passent.
-- Variables d'environnement présentes (jamais dans le dépôt) :
-  - `TAURI_SIGNING_PRIVATE_KEY` (chemin ou contenu de la clé privée de l'updater)
-  - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` si la clé a un mot de passe
-- Cibles Rust : `rustup target add aarch64-apple-darwin x86_64-apple-darwin`.
-
-## 2. Numéro de version
-
-SemVer : correctif `0.1.1 → 0.1.2`, fonctionnalité `0.1.x → 0.2.0`. Le même numéro dans les trois fichiers :
-
-- `package.json` → `"version"`
-- `src-tauri/Cargo.toml` → `[package] version`
-- `src-tauri/tauri.conf.json` → `"version"`
-
-Puis `cd src-tauri && cargo check` pour mettre à jour `Cargo.lock`.
-
-Si la version contient une migration : vérifier qu'elle a été essayée sur une copie d'une vraie base (skill `tracink-migration`). L'app copie la base avant migration, mais ce n'est pas une excuse.
-
-## 3. Build
+La commande fait le travail. Elle ne commit ni ne pousse rien.
 
 ```bash
-pnpm dist:mac
+pnpm run release            # 0.4.0 → 0.4.1
+pnpm run release minor      # 0.4.0 → 0.5.0
+pnpm run release major      # 0.4.0 → 1.0.0
+pnpm run release 1.2.0
 ```
+
+Options : `--skip-check`, `--allow-dirty`, `--draft`, `--publish-only` (republie les fichiers déjà construits de la version actuelle, sans rebuild). macOS seulement. Script : `scripts/release.mjs`.
+
+## Déroulement
+
+1. Clé publique déjà dans `src-tauri/tauri.conf.json`. Clé privée : `TAURI_SIGNING_PRIVATE_KEY` (contenu ou chemin). Mot de passe : `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, sinon le Trousseau (`com.tracink.updater`, compte `tracink`), sinon une saisie masquée. `gh` connecté. Le dépôt est celui de l'endpoint updater.
+2. Arbre git propre, sauf `--allow-dirty`. `--publish-only` saute aussi cette vérification.
+3. Sauf `--skip-check` (et jamais pour `--publish-only`) : `pnpm check`, puis dans `src-tauri` `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` et `cargo test`. Pas de Playwright : la CI le fait, et le build universel est long.
+4. Même numéro dans `package.json`, `src-tauri/tauri.conf.json` et `src-tauri/Cargo.toml`, puis `cargo check` pour `Cargo.lock`. Si le build échoue, ces quatre fichiers reviennent à l'ancienne version.
+5. Éjection d'un DMG Tracink encore monté, puis `pnpm dist:mac`. Cibles Rust : `rustup target add aarch64-apple-darwin x86_64-apple-darwin`.
+6. `latest.json` : `darwin-aarch64` et `darwin-x86_64` pointent vers la même archive. Les notes sont les sujets des commits depuis le dernier tag `v*`.
+7. `gh release create v<version>` avec le `.dmg`, `Tracink.app.tar.gz`, son `.sig` et `latest.json`. Un brouillon du même tag est remplacé. Une release déjà publiée arrête la commande.
 
 Fichiers produits dans `src-tauri/target/universal-apple-darwin/release/bundle/` :
 
 - `dmg/Tracink_<version>_universal.dmg` : installation initiale
 - `macos/Tracink.app.tar.gz` et `macos/Tracink.app.tar.gz.sig` : mise à jour automatique
+- `release/` : copies prêtes à republier avec `--publish-only`
 
-Sans `.sig`, la clé de signature n'a pas été trouvée : ne pas publier.
+Sans `.sig`, la clé de signature n'a pas été trouvée : la commande ne publie pas.
 
-## 4. latest.json
+## latest.json
 
 ```json
 {
@@ -63,17 +58,24 @@ Sans `.sig`, la clé de signature n'a pas été trouvée : ne pas publier.
 }
 ```
 
-Le build est universel : les deux plateformes pointent sur la même archive.
+Le build est universel : les deux plateformes pointent sur la même archive. Le nom du fichier sur GitHub reste `Tracink.app.tar.gz`.
 
-## 5. Publier
+## Après la commande
 
-1. Commit `Release v<version>`, tag `v<version>`, push du commit et du tag (seulement si l'utilisateur l'a demandé).
-2. Release GitHub `v<version>` avec : le `.dmg`, `Tracink.app.tar.gz`, `Tracink.app.tar.gz.sig`, `latest.json`.
-3. Notes de version en français, orientées usage : ce qui change pour la tatoueuse.
+Elle affiche la commande à lancer, seulement si l'utilisateur l'a demandé :
 
-## 6. Vérifier
+```bash
+git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+git commit -m "Release v<version>" && git tag v<version> && git push --follow-tags
+```
 
-- Ouvrir l'URL `…/releases/latest/download/latest.json` : elle renvoie la nouvelle version.
+Le tag GitHub existe déjà : il pointe le commit depuis lequel la commande a tourné. Si `git push --follow-tags` refuse le tag, les fichiers de la release sont déjà en ligne. Ne pas forcer le tag sans demande explicite.
+
+Si la version contient une migration : vérifier qu'elle a été essayée sur une copie d'une vraie base (skill `tracink-migration`). L'app copie la base avant migration, mais ce n'est pas une excuse.
+
+## Vérifier
+
+- Ouvrir l'URL `…/releases/latest/download/latest.json` : elle renvoie la nouvelle version. Un brouillon (`--draft`) n'est pas proposé tant qu'il n'est pas publié.
 - Sur une installation de la version précédente, la bannière de mise à jour apparaît, l'installation et le redémarrage fonctionnent, les données sont intactes.
 
 ## Limite connue

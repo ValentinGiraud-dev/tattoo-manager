@@ -1,4 +1,13 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
+import { createPortal } from "react-dom";
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"] as const;
 
@@ -84,6 +93,31 @@ function clampYear(year: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, year));
 }
 
+type PanelBox = { top: number; left: number; width: number; maxHeight?: number };
+
+/** Place le calendrier sous le champ, ou au-dessus s'il n'y a pas la place. */
+function panelBox(
+  anchor: DOMRect,
+  panelHeight: number,
+  viewport: { width: number; height: number },
+): PanelBox {
+  const gap = 8;
+  const width = Math.min(320, viewport.width - gap * 2);
+  const height = Math.min(panelHeight, viewport.height - gap * 2);
+  const spaceBelow = viewport.height - anchor.bottom - gap;
+  const spaceAbove = anchor.top - gap;
+  const openUp = spaceBelow < height && spaceAbove > spaceBelow;
+  const preferred = openUp ? anchor.top - gap - height : anchor.bottom + gap;
+  const top = Math.max(gap, Math.min(preferred, viewport.height - height - gap));
+  const left = Math.max(gap, Math.min(anchor.left, viewport.width - width - gap));
+  return {
+    top,
+    left,
+    width,
+    maxHeight: height < panelHeight ? height : undefined,
+  };
+}
+
 export function DateSelector({
   name,
   value,
@@ -98,6 +132,8 @@ export function DateSelector({
   const autoId = useId();
   const fieldId = id ?? autoId;
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const isControlled = value !== undefined;
   const [internal, setInternal] = useState<string | null>(defaultValue ?? null);
   const selectedIso = isControlled ? (value ?? null) : internal;
@@ -118,12 +154,49 @@ export function DateSelector({
     setOpen(true);
   }
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    const anchor = rootRef.current;
+    const panel = panelRef.current;
+    if (!anchor || !panel) return;
+
+    function place() {
+      const currentAnchor = rootRef.current;
+      const currentPanel = panelRef.current;
+      if (!currentAnchor || !currentPanel) return;
+      const viewport = { width: window.innerWidth, height: window.innerHeight };
+      const width = Math.min(320, viewport.width - 16);
+      currentPanel.style.width = `${width}px`;
+      const next = panelBox(
+        currentAnchor.getBoundingClientRect(),
+        currentPanel.scrollHeight,
+        viewport,
+      );
+      currentPanel.style.top = `${next.top}px`;
+      currentPanel.style.left = `${next.left}px`;
+      currentPanel.style.maxHeight = next.maxHeight === undefined ? "" : `${next.maxHeight}px`;
+    }
+
+    place();
+    window.addEventListener("resize", place);
+    document.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      document.removeEventListener("scroll", place, true);
+    };
+  }, [open, cursorMonth, cursorYear]);
+
   useEffect(() => {
     if (!open) return;
+    const trigger = triggerRef.current;
+    const panel = panelRef.current;
+    panel?.focus({ preventScroll: true });
+
     function onPointerDown(event: MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (rootRef.current?.contains(target) || panel?.contains(target)) return;
+      setOpen(false);
     }
     function onKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key === "Escape") setOpen(false);
@@ -133,6 +206,10 @@ export function DateSelector({
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      const active = document.activeElement;
+      if (active === null || active === document.body || panel?.contains(active)) {
+        trigger?.focus();
+      }
     };
   }, [open]);
 
@@ -201,6 +278,7 @@ export function DateSelector({
 
       <div className="flex gap-2">
         <button
+          ref={triggerRef}
           id={fieldId}
           type="button"
           disabled={disabled}
@@ -252,131 +330,137 @@ export function DateSelector({
         ) : null}
       </div>
 
-      {open ? (
-        <div
-          role="dialog"
-          aria-label="Choisir une date"
-          className="absolute z-40 mt-2 w-[min(100%,320px)] rounded-lg border border-line-strong bg-surface p-3 shadow-[0_20px_50px_-28px_rgba(0,0,0,.55)]"
-        >
-          <div className="mb-3 flex items-center gap-2">
-            <button
-              type="button"
-              aria-label="Mois précédent"
-              onClick={() => shiftMonth(-1)}
-              className="grid size-8 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
+      {/* Portail : la liste des pièces coupe ce qui dépasse (overflow-hidden). */}
+      {open
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="dialog"
+              aria-label="Choisir une date"
+              tabIndex={-1}
+              className="fixed z-[60] w-80 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-line-strong bg-surface p-3 shadow-[0_20px_50px_-28px_rgba(0,0,0,.55)] outline-none"
             >
-              ‹
-            </button>
-
-            <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-              <label className="sr-only" htmlFor={`${fieldId}-month`}>
-                Mois
-              </label>
-              <select
-                id={`${fieldId}-month`}
-                value={cursorMonth}
-                onChange={(event) => setCursorMonth(Number(event.target.value))}
-                className="max-w-[9.5rem] rounded-md border border-line bg-bg px-2 py-1.5 text-[13px] text-fg outline-none focus:border-accent"
-              >
-                {MONTHS.map((label, index) => (
-                  <option key={label} value={index}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-
-              <label className="sr-only" htmlFor={`${fieldId}-year`}>
-                Année
-              </label>
-              <select
-                id={`${fieldId}-year`}
-                value={cursorYear}
-                onChange={(event) => setCursorYear(Number(event.target.value))}
-                className="rounded-md border border-line bg-bg px-2 py-1.5 font-mono text-[13px] text-fg outline-none focus:border-accent"
-              >
-                {years.map((year) => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              type="button"
-              aria-label="Mois suivant"
-              onClick={() => shiftMonth(1)}
-              className="grid size-8 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
-            >
-              ›
-            </button>
-          </div>
-
-          <div className="mb-1 grid grid-cols-7 gap-0.5">
-            {WEEKDAYS.map((day) => (
-              <div
-                key={day}
-                className="grid h-8 place-items-center text-[11px] font-medium tracking-wide text-fg-faint uppercase"
-              >
-                {day}
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-7 gap-0.5">
-            {cells.map((cell, index) =>
-              cell.day === null ? (
-                <div key={`empty-${index}`} className="h-9" />
-              ) : (
+              <div className="mb-3 flex items-center gap-2">
                 <button
-                  key={cell.iso}
                   type="button"
-                  onClick={() => selectDay(cell.day!)}
-                  className={[
-                    "grid h-9 place-items-center rounded-md text-[13px] transition-colors active:scale-[0.97]",
-                    cell.isSelected
-                      ? "bg-accent font-medium text-accent-fg"
-                      : cell.isToday
-                        ? "bg-surface-2 font-medium text-fg"
-                        : "text-fg hover:bg-surface-2",
-                  ].join(" ")}
+                  aria-label="Mois précédent"
+                  onClick={() => shiftMonth(-1)}
+                  className="grid size-8 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
                 >
-                  {cell.day}
+                  ‹
                 </button>
-              ),
-            )}
-          </div>
 
-          <div className="mt-3 flex items-center justify-between border-t border-line pt-2">
-            <button
-              type="button"
-              className="rounded-md px-2 py-1 text-[12.5px] text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
-              onClick={() => {
-                const today = new Date();
-                const year = clampYear(today.getFullYear(), minYear, maxYear);
-                setCursorYear(year);
-                setCursorMonth(today.getMonth());
-                if (year === today.getFullYear()) {
-                  commit(toIso(today));
-                  setOpen(false);
-                }
-              }}
-            >
-              Aujourd’hui
-            </button>
-            <button
-              type="button"
-              className="rounded-md px-2 py-1 text-[12.5px] text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
-              onClick={() => {
-                commit(null);
-                setOpen(false);
-              }}
-            >
-              Effacer
-            </button>
-          </div>
-        </div>
-      ) : null}
+                <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+                  <label className="sr-only" htmlFor={`${fieldId}-month`}>
+                    Mois
+                  </label>
+                  <select
+                    id={`${fieldId}-month`}
+                    value={cursorMonth}
+                    onChange={(event) => setCursorMonth(Number(event.target.value))}
+                    className="max-w-[9.5rem] rounded-md border border-line bg-bg px-2 py-1.5 text-[13px] text-fg outline-none focus:border-accent"
+                  >
+                    {MONTHS.map((label, index) => (
+                      <option key={label} value={index}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label className="sr-only" htmlFor={`${fieldId}-year`}>
+                    Année
+                  </label>
+                  <select
+                    id={`${fieldId}-year`}
+                    value={cursorYear}
+                    onChange={(event) => setCursorYear(Number(event.target.value))}
+                    className="rounded-md border border-line bg-bg px-2 py-1.5 font-mono text-[13px] text-fg outline-none focus:border-accent"
+                  >
+                    {years.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  aria-label="Mois suivant"
+                  onClick={() => shiftMonth(1)}
+                  className="grid size-8 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg active:scale-[0.97]"
+                >
+                  ›
+                </button>
+              </div>
+
+              <div className="mb-1 grid grid-cols-7 gap-0.5">
+                {WEEKDAYS.map((day) => (
+                  <div
+                    key={day}
+                    className="grid h-8 place-items-center text-[11px] font-medium tracking-wide text-fg-faint uppercase"
+                  >
+                    {day}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-0.5">
+                {cells.map((cell, index) =>
+                  cell.day === null ? (
+                    <div key={`empty-${index}`} className="h-9" />
+                  ) : (
+                    <button
+                      key={cell.iso}
+                      type="button"
+                      onClick={() => selectDay(cell.day!)}
+                      className={[
+                        "grid h-9 place-items-center rounded-md text-[13px] transition-colors active:scale-[0.97]",
+                        cell.isSelected
+                          ? "bg-accent font-medium text-accent-fg"
+                          : cell.isToday
+                            ? "bg-surface-2 font-medium text-fg"
+                            : "text-fg hover:bg-surface-2",
+                      ].join(" ")}
+                    >
+                      {cell.day}
+                    </button>
+                  ),
+                )}
+              </div>
+
+              <div className="mt-3 flex items-center justify-between border-t border-line pt-2">
+                <button
+                  type="button"
+                  className="rounded-md px-2 py-1 text-[12.5px] text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
+                  onClick={() => {
+                    const today = new Date();
+                    const year = clampYear(today.getFullYear(), minYear, maxYear);
+                    setCursorYear(year);
+                    setCursorMonth(today.getMonth());
+                    if (year === today.getFullYear()) {
+                      commit(toIso(today));
+                      setOpen(false);
+                    }
+                  }}
+                >
+                  Aujourd’hui
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md px-2 py-1 text-[12.5px] text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
+                  onClick={() => {
+                    commit(null);
+                    setOpen(false);
+                  }}
+                >
+                  Effacer
+                </button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

@@ -9,6 +9,8 @@ import { ClientProjects } from "./client-projects";
 import { toast } from "../../stores/toast-store";
 import { btnGhost, btnPrimary, fieldClass, labelClass } from "../../components/styles";
 import { BackButton } from "../../components/back-button";
+import { ArchiveBanner, ArchiveFilter } from "../../components/archive-controls";
+import { useConfirm } from "../../components/use-confirm";
 import { useUIStore } from "../../stores/ui-store";
 
 type View =
@@ -154,11 +156,116 @@ function ClientDetail({
   client,
   onEdit,
   onBack,
+  onChange,
 }: {
   client: Client;
   onEdit: () => void;
   onBack: () => void;
+  onChange: (client: Client) => void;
 }) {
+  const { remove, archive, restore, previewRemoval, get } = useClientsStore();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [action, setAction] = useState<"delete" | "archive" | null>(null);
+  const archived = client.archivedAt !== null;
+
+  useEffect(() => {
+    if (archived) return;
+    let cancelled = false;
+    previewRemoval(client.id)
+      .then((preview) => {
+        if (!cancelled) setAction(preview.canDelete ? "delete" : "archive");
+      })
+      .catch(() => {
+        if (!cancelled) setAction(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [archived, client.id, previewRemoval]);
+
+  async function removeOrArchive() {
+    setError(null);
+    const name = `${client.firstName} ${client.lastName}`;
+    let preview;
+    try {
+      preview = await previewRemoval(client.id);
+    } catch (previewError) {
+      setError(String(previewError));
+      return;
+    }
+    if (preview.canDelete) {
+      const ok = await confirm({
+        title: "Supprimer ce client ?",
+        details: [name],
+        body: "La fiche sera supprimée définitivement. Cette action est irréversible.",
+        confirmLabel: "Supprimer le client",
+        tone: "danger",
+        typeToConfirm: "SUPPRIMER",
+      });
+      if (!ok) return;
+      setBusy(true);
+      try {
+        await remove(client.id);
+        toast.success("Client supprimé");
+        onBack();
+      } catch (deleteError) {
+        setError(String(deleteError));
+        setBusy(false);
+      }
+      return;
+    }
+    const stock =
+      preview.stock.length === 0
+        ? "Aucun stock à usage unique n'est remis."
+        : preview.stock
+            .map((line) => `${line.name} · lot ${line.lotNumber} · ${line.quantity} remis`)
+            .join(", ");
+    const ok = await confirm({
+      title: "Archiver ce client ?",
+      details: [
+        name,
+        `${preview.sessions.length} séance${preview.sessions.length > 1 ? "s" : ""}`,
+        `${preview.projects.length} projet${preview.projects.length > 1 ? "s" : ""}`,
+        stock,
+      ],
+      body: "Il quitte les listes, le planning et les sélecteurs. Ses séances restent dans son historique, avec la mention « client archivé ». Le stock à usage unique consommé est remis.",
+      confirmLabel: "Archiver le client",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await archive(client.id);
+      toast.success("Client archivé");
+      onBack();
+    } catch (archiveError) {
+      setError(String(archiveError));
+      setBusy(false);
+    }
+  }
+
+  async function unarchive() {
+    const ok = await confirm({
+      title: "Désarchiver ce client ?",
+      body: "Il revient dans les listes. Le stock remis à l'archivage est de nouveau décompté, si le stock suffit.",
+      confirmLabel: "Désarchiver",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await restore(client.id);
+      const fresh = await get(client.id);
+      toast.success("Client désarchivé");
+      onChange(fresh);
+    } catch (restoreError) {
+      setError(String(restoreError));
+    } finally {
+      setBusy(false);
+    }
+  }
   const rows: [string, string | null][] = [
     ["Date de naissance", client.birthDate ? formatIsoDate(client.birthDate) : null],
     ["Adresse", client.address],
@@ -172,6 +279,11 @@ function ClientDetail({
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-5 px-8 py-10">
       <BackButton listLabel="Clients" onList={onBack} />
+      {archived && (
+        <ArchiveBanner>
+          Archivé. Cette fiche est en lecture seule. Désarchive-la pour la modifier.
+        </ArchiveBanner>
+      )}
       <div className="flex items-start gap-4">
         <span className="grid size-12 place-items-center rounded-md border border-line bg-surface-2 text-[14px] font-medium text-fg-muted">
           {initials(client)}
@@ -184,10 +296,36 @@ function ClientDetail({
             {[client.email, client.phone].filter(Boolean).join(" · ") || "Aucun contact"}
           </p>
         </div>
-        <button type="button" onClick={onEdit} className={btnPrimary}>
-          Modifier
-        </button>
+        <div className="flex gap-2">
+          {archived ? (
+            <button
+              type="button"
+              onClick={() => void unarchive()}
+              disabled={busy}
+              className={btnPrimary}
+            >
+              {busy ? "Désarchivage…" : "Désarchiver"}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => void removeOrArchive()}
+                disabled={busy}
+                className={btnGhost}
+              >
+                <span className="text-danger">
+                  {busy ? "En cours…" : action === "delete" ? "Supprimer" : "Archiver"}
+                </span>
+              </button>
+              <button type="button" onClick={onEdit} className={btnPrimary}>
+                Modifier
+              </button>
+            </>
+          )}
+        </div>
       </div>
+      {error && <p className="text-[13px] text-danger">{error}</p>}
       <dl className="grid gap-3 rounded-lg border border-line bg-surface p-4">
         {rows.map(([label, value]) => (
           <div key={label} className="grid grid-cols-[9rem_1fr] gap-3 text-[13.5px]">
@@ -196,7 +334,11 @@ function ClientDetail({
           </div>
         ))}
       </dl>
-      <ClientProjects key={`projects-${client.id}`} clientId={client.id} />
+      <ClientProjects
+        key={`projects-${client.id}`}
+        clientId={client.id}
+        clientArchived={archived}
+      />
       <ClientHistory key={client.id} clientId={client.id} />
       <AuditHistory key={`audit-${client.id}`} target={{ kind: "client", id: client.id }} />
     </div>
@@ -204,7 +346,7 @@ function ClientDetail({
 }
 
 export default function ClientsPage() {
-  const { clients, search, loading, error, load, get: getClient } = useClientsStore();
+  const { clients, search, showArchived, loading, error, load, get: getClient } = useClientsStore();
   const [view, setView] = useState<View>({ kind: "list" });
   const clientIntent = useUIStore((state) => state.clientIntent);
   const takeClientIntent = useUIStore((state) => state.takeClientIntent);
@@ -252,6 +394,7 @@ export default function ClientsPage() {
         client={view.client}
         onEdit={() => setView({ kind: "form", client: view.client })}
         onBack={() => setView({ kind: "list" })}
+        onChange={(client) => setView({ kind: "detail", client })}
       />
     );
   }
@@ -265,9 +408,17 @@ export default function ClientsPage() {
             {loading ? "Chargement…" : `${clients.length} client${clients.length === 1 ? "" : "s"}`}
           </p>
         </div>
-        <button type="button" onClick={() => setView({ kind: "form" })} className={btnPrimary}>
-          Nouveau client
-        </button>
+        <div className="flex items-center gap-3">
+          <ArchiveFilter
+            archived={showArchived}
+            onChange={(archived) => void load(search, archived)}
+          />
+          {!showArchived && (
+            <button type="button" onClick={() => setView({ kind: "form" })} className={btnPrimary}>
+              Nouveau client
+            </button>
+          )}
+        </div>
       </div>
 
       <input
@@ -283,9 +434,13 @@ export default function ClientsPage() {
       {!loading && clients.length === 0 ? (
         <div className="rounded-lg border border-line bg-surface px-5 py-10 text-center">
           <p className="text-[14px] text-fg-muted">
-            {search ? "Aucun résultat." : "Aucun client pour le moment."}
+            {search
+              ? "Aucun résultat."
+              : showArchived
+                ? "Aucun client archivé."
+                : "Aucun client pour le moment."}
           </p>
-          {!search && (
+          {!search && !showArchived && (
             <button
               type="button"
               onClick={() => setView({ kind: "form" })}

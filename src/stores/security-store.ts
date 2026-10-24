@@ -17,6 +17,16 @@ export type SecurityStatus = {
 };
 
 export const AUTO_LOCK_CHOICES = [0, 2, 5, 10, 15, 30] as const;
+
+/** Drapeau de session, sans donnée client : le toast après rechargement. */
+export const DATA_RESET_NOTICE = "tracink:data-reset";
+
+export type ResetScope = "data" | "installation";
+
+export type ResetProof =
+  | { method: "password"; password: string; scope?: ResetScope }
+  | { method: "touchId"; scope?: ResetScope };
+
 export const MIN_PASSWORD_CHARS = 8;
 
 type SecurityState = {
@@ -42,6 +52,11 @@ type SecurityState = {
   rotateKey: (currentPassword: string, newPassword: string) => Promise<string>;
   setTouchId: (enabled: boolean) => Promise<void>;
   setAutoLock: (minutes: number) => Promise<void>;
+  /**
+   * Efface selon la portée, puis recharge l'app.
+   * `data` garde le mot de passe. `installation` ramène à l'écran de création.
+   */
+  resetApp: (proof: ResetProof) => Promise<void>;
   /** Après une restauration, depuis l'écran qui l'a lancée. */
   applyStatus: (status: SecurityStatus) => void;
 };
@@ -117,6 +132,17 @@ export const useSecurityStore = create<SecurityState>((set, get) => {
     },
     setAutoLock: async (minutes) => {
       applyStatus(await invoke<SecurityStatus>("set_auto_lock", { minutes }));
+    },
+    resetApp: async (proof) => {
+      await invoke("reset_app", { proof });
+      if (proof.scope !== "installation") {
+        try {
+          sessionStorage.setItem(DATA_RESET_NOTICE, "1");
+        } catch {
+          // Le rechargement vide quand même la mémoire.
+        }
+      }
+      window.location.reload();
     },
   };
 });

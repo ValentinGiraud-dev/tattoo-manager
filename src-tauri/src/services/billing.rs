@@ -220,19 +220,34 @@ struct SessionRef {
     client_id: String,
     project_id: Option<String>,
     status: String,
+    archived_at: Option<String>,
+    client_archived_at: Option<String>,
 }
 
 async fn session_ref(
     tx: &mut Transaction<'_, Sqlite>,
     session_id: &str,
 ) -> Result<SessionRef, LotError> {
-    sqlx::query_as::<_, SessionRef>(
-        "SELECT client_id, project_id, status FROM sessions WHERE id = ?",
+    let row: Option<SessionRef> = sqlx::query_as(
+        "SELECT s.client_id, s.project_id, s.status, s.archived_at,
+                c.archived_at AS client_archived_at
+         FROM sessions s
+         INNER JOIN clients c ON c.id = s.client_id
+         WHERE s.id = ?",
     )
     .bind(session_id)
     .fetch_optional(&mut **tx)
-    .await?
-    .ok_or(LotError::Invalid("La séance est introuvable"))
+    .await?;
+    let Some(row) = row else {
+        return Err(LotError::Invalid("La séance est introuvable"));
+    };
+    if row.archived_at.is_some() {
+        return Err(LotError::Invalid(super::archive::SESSION_LOCKED));
+    }
+    if row.client_archived_at.is_some() {
+        return Err(LotError::Invalid(super::archive::CLIENT_LOCKED));
+    }
+    Ok(row)
 }
 
 async fn deposit_in_tx(
@@ -290,12 +305,22 @@ pub async fn record_deposit(
             ));
         }
         (Some(project_id), session_id) => {
-            let owner: Option<String> =
-                sqlx::query_scalar("SELECT client_id FROM projects WHERE id = ?")
-                    .bind(project_id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
-            let owner = owner.ok_or(LotError::Invalid("Le projet est introuvable"))?;
+            let project: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+                "SELECT p.client_id, p.archived_at, c.archived_at
+                 FROM projects p JOIN clients c ON c.id = p.client_id WHERE p.id = ?",
+            )
+            .bind(project_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let Some((owner, project_archived, client_archived)) = project else {
+                return Err(LotError::Invalid("Le projet est introuvable"));
+            };
+            if project_archived.is_some() {
+                return Err(LotError::Invalid(super::archive::PROJECT_LOCKED));
+            }
+            if client_archived.is_some() {
+                return Err(LotError::Invalid(super::archive::CLIENT_LOCKED));
+            }
             if let Some(session_id) = session_id {
                 let session = session_ref(&mut tx, session_id).await?;
                 if session.project_id.as_deref() != Some(project_id.as_str()) {

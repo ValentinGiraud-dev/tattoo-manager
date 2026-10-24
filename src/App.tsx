@@ -11,7 +11,9 @@ import ReportsPage from "./features/reports/reports-page";
 import JournalPage from "./features/journal/journal-page";
 import SessionsPage from "./features/sessions/sessions-page";
 import SettingsPage from "./features/settings/settings-page";
+import { DATA_RESET_NOTICE } from "./stores/security-store";
 import { useSettingsStore } from "./stores/settings-store";
+import { toast } from "./stores/toast-store";
 import { useUIStore } from "./stores/ui-store";
 
 function App() {
@@ -23,6 +25,16 @@ function App() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(DATA_RESET_NOTICE) !== "1") return;
+      sessionStorage.removeItem(DATA_RESET_NOTICE);
+    } catch {
+      return;
+    }
+    toast.success("Données réinitialisées");
+  }, []);
 
   // Fournisseur propre à l'app : ses dialogues restent masqués avec elle quand l'app est verrouillée.
   return (

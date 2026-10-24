@@ -32,6 +32,8 @@ pub mod event {
     pub const BACKUP_RESTORED: &str = "BACKUP_RESTORED";
     pub const CSV_EXPORTED: &str = "CSV_EXPORTED";
     pub const KEY_ROTATED: &str = "KEY_ROTATED";
+    /// Base locale remplacée par une base vide. Aucun nom dans le détail.
+    pub const DATA_RESET: &str = "DATA_RESET";
 }
 
 /// Familles proposées dans le filtre de l'écran Journal.

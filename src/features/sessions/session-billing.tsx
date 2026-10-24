@@ -41,7 +41,13 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 }
 
 /** Prix, acomptes, paiements et reste à payer d'une séance. */
-export function SessionBilling({ session }: { session: SessionListItem }) {
+export function SessionBilling({
+  session,
+  readOnly = false,
+}: {
+  session: SessionListItem;
+  readOnly?: boolean;
+}) {
   const store = useBillingStore();
   const confirm = useConfirm();
   const [bill, setBill] = useState<Billing | null>(null);
@@ -223,128 +229,131 @@ export function SessionBilling({ session }: { session: SessionListItem }) {
               <li key={deposit.id} className="flex flex-col gap-2 px-4 py-3">
                 <p className="text-[13.5px]">{depositLine(deposit)}</p>
                 {deposit.note && <p className="text-[12.5px] text-fg-muted">{deposit.note}</p>}
-                <div className="flex flex-wrap gap-2">
-                  {canApply && (
+                {!readOnly && (
+                  <div className="flex flex-wrap gap-2">
+                    {canApply && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void applyDeposit(deposit)}
+                        className={btnPrimary}
+                      >
+                        Déduire de cette séance
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => void applyDeposit(deposit)}
-                      className={btnPrimary}
+                      onClick={() => void settleDeposit(deposit)}
+                      className={btnGhost}
                     >
-                      Déduire de cette séance
+                      Perdu ou remboursé…
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void settleDeposit(deposit)}
-                    className={btnGhost}
-                  >
-                    Perdu ou remboursé…
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void voidDeposit(deposit)}
-                    className={btnGhost}
-                  >
-                    Annuler la saisie
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void voidDeposit(deposit)}
+                      className={btnGhost}
+                    >
+                      Annuler la saisie
+                    </button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      {adding === "payment" ? (
-        <MoneyForm
-          title="Encaisser un paiement"
-          submitLabel="Encaisser"
-          initialCents={
-            bill.balanceCents !== null && bill.balanceCents > 0 ? bill.balanceCents : null
-          }
-          onCancel={() => setAdding(null)}
-          onSubmit={async (draft) => {
-            await store.recordPayment({
-              sessionId: session.id,
-              amountCents: draft.amountCents,
-              method: draft.method,
-              paidOn: draft.date,
-              note: draft.note,
-            });
-            setAdding(null);
-            toast.success("Paiement enregistré");
-            setBill(await store.sessionBilling(session.id));
-          }}
-        />
-      ) : adding === "deposit" ? (
-        <MoneyForm
-          title="Enregistrer un acompte"
-          submitLabel="Enregistrer l'acompte"
-          initialCents={null}
-          onCancel={() => setAdding(null)}
-          extra={
-            session.projectId ? (
-              <fieldset className="flex flex-col gap-1.5 text-[13px]">
-                <legend className={labelClass}>Rattacher à</legend>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    checked={depositTarget === "project"}
-                    onChange={() => setDepositTarget("project")}
-                    className="accent-[var(--accent)]"
-                  />
-                  Projet « {session.projectTitle} » (déductible de n&apos;importe quelle séance du
-                  projet)
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    checked={depositTarget === "session"}
-                    onChange={() => setDepositTarget("session")}
-                    className="accent-[var(--accent)]"
-                  />
-                  Cette séance uniquement
-                </label>
-              </fieldset>
-            ) : undefined
-          }
-          onSubmit={async (draft) => {
-            const forProject = session.projectId !== null && depositTarget === "project";
-            await store.recordDeposit({
-              projectId: forProject ? session.projectId : null,
-              sessionId: forProject ? null : session.id,
-              amountCents: draft.amountCents,
-              method: draft.method,
-              receivedOn: draft.date,
-              note: draft.note,
-            });
-            setAdding(null);
-            toast.success("Acompte enregistré");
-            setBill(await store.sessionBilling(session.id));
-          }}
-        />
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setAdding("payment")}
-            className={btnPrimary}
-          >
-            Encaisser un paiement
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setAdding("deposit")}
-            className={btnGhost}
-          >
-            Enregistrer un acompte
-          </button>
-        </div>
-      )}
+      {!readOnly &&
+        (adding === "payment" ? (
+          <MoneyForm
+            title="Encaisser un paiement"
+            submitLabel="Encaisser"
+            initialCents={
+              bill.balanceCents !== null && bill.balanceCents > 0 ? bill.balanceCents : null
+            }
+            onCancel={() => setAdding(null)}
+            onSubmit={async (draft) => {
+              await store.recordPayment({
+                sessionId: session.id,
+                amountCents: draft.amountCents,
+                method: draft.method,
+                paidOn: draft.date,
+                note: draft.note,
+              });
+              setAdding(null);
+              toast.success("Paiement enregistré");
+              setBill(await store.sessionBilling(session.id));
+            }}
+          />
+        ) : adding === "deposit" ? (
+          <MoneyForm
+            title="Enregistrer un acompte"
+            submitLabel="Enregistrer l'acompte"
+            initialCents={null}
+            onCancel={() => setAdding(null)}
+            extra={
+              session.projectId ? (
+                <fieldset className="flex flex-col gap-1.5 text-[13px]">
+                  <legend className={labelClass}>Rattacher à</legend>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      checked={depositTarget === "project"}
+                      onChange={() => setDepositTarget("project")}
+                      className="accent-[var(--accent)]"
+                    />
+                    Projet « {session.projectTitle} » (déductible de n&apos;importe quelle séance du
+                    projet)
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      checked={depositTarget === "session"}
+                      onChange={() => setDepositTarget("session")}
+                      className="accent-[var(--accent)]"
+                    />
+                    Cette séance uniquement
+                  </label>
+                </fieldset>
+              ) : undefined
+            }
+            onSubmit={async (draft) => {
+              const forProject = session.projectId !== null && depositTarget === "project";
+              await store.recordDeposit({
+                projectId: forProject ? session.projectId : null,
+                sessionId: forProject ? null : session.id,
+                amountCents: draft.amountCents,
+                method: draft.method,
+                receivedOn: draft.date,
+                note: draft.note,
+              });
+              setAdding(null);
+              toast.success("Acompte enregistré");
+              setBill(await store.sessionBilling(session.id));
+            }}
+          />
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setAdding("payment")}
+              className={btnPrimary}
+            >
+              Encaisser un paiement
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setAdding("deposit")}
+              className={btnGhost}
+            >
+              Enregistrer un acompte
+            </button>
+          </div>
+        ))}
 
       {(bill.payments.length > 0 || closed.length > 0) && (
         <div className="flex flex-col gap-2">
@@ -364,7 +373,7 @@ export function SessionBilling({ session }: { session: SessionListItem }) {
                     <p className="text-[12.5px] text-fg-muted">Annulé : {payment.voidReason}</p>
                   )}
                 </div>
-                {!payment.voidReason && (
+                {!readOnly && !payment.voidReason && (
                   <button
                     type="button"
                     disabled={busy}
@@ -393,7 +402,7 @@ export function SessionBilling({ session }: { session: SessionListItem }) {
                     {deposit.voidReason ? ` : ${deposit.voidReason}` : ""}
                   </p>
                 </div>
-                {deposit.outcomeId && deposit.status !== "VOIDED" && (
+                {!readOnly && deposit.outcomeId && deposit.status !== "VOIDED" && (
                   <button
                     type="button"
                     disabled={busy}

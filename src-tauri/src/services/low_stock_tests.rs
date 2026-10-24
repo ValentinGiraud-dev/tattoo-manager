@@ -289,6 +289,7 @@ async fn the_dashboard_and_session_linking_see_the_alert() {
             body_area: None,
             description: None,
             notes: None,
+            title: None,
         },
     )
     .await

@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
+use super::archive::SHEET_LOCKED;
 use super::categories;
 use super::error::LotError;
 use super::lots::{self, LotSummary};
@@ -34,7 +35,7 @@ pub const TYPE_MISMATCH: &str =
 pub const TYPE_LOCKED: &str =
     "Cette fiche a déjà des lots : son type (usage unique ou multiple) ne peut plus changer";
 pub const SHEET_HAS_LOTS: &str =
-    "Cette fiche a encore des lots : rattache-les à une autre fiche avant de la supprimer";
+    "Cette fiche a encore des lots : elle ne peut pas être supprimée. Archive-la pour la retirer des listes.";
 pub const SHEET_GONE: &str = "Cette fiche produit n'existe plus";
 
 const MAX_NAME_CHARS: usize = 120;
@@ -106,6 +107,7 @@ pub struct ProductSheetView {
     pub expired_stock: i64,
     /// Seuil réglé sur la fiche (vide : celui de la catégorie ; 0 : pas d'alerte).
     pub low_stock_threshold: Option<i64>,
+    pub archived_at: Option<String>,
     /// Seuil qui s'applique, d'où qu'il vienne ; `None` : pas d'alerte.
     #[sqlx(skip)]
     pub alert_threshold: Option<i64>,
@@ -216,6 +218,7 @@ async fn sync_lot_categories(
         "UPDATE lots
          SET category_id = (SELECT category_id FROM product_sheets WHERE id = ?1)
          WHERE product_id = ?1
+           AND archived_at IS NULL
            AND category_id IS NOT (SELECT category_id FROM product_sheets WHERE id = ?1)",
     )
     .bind(sheet_id)
@@ -231,6 +234,14 @@ pub(crate) async fn attach(
     sheet_id: &str,
 ) -> Result<(), LotError> {
     let sheet = template(tx, sheet_id).await?;
+    let archived: Option<String> =
+        sqlx::query_scalar("SELECT archived_at FROM product_sheets WHERE id = ?")
+            .bind(sheet_id)
+            .fetch_one(&mut **tx)
+            .await?;
+    if archived.is_some() {
+        return Err(LotError::Invalid(SHEET_LOCKED));
+    }
     let lot_single_use: Option<bool> =
         sqlx::query_scalar("SELECT single_use FROM lots WHERE id = ?")
             .bind(lot_id)
@@ -261,7 +272,7 @@ async fn lot_count(tx: &mut Transaction<'_, Sqlite>, sheet_id: &str) -> Result<i
 }
 
 const SHEET_SELECT: &str = "SELECT id, name, brand, category_id, single_use, after_opening_months,
-        product_url, low_stock_threshold, created_at, updated_at
+        product_url, low_stock_threshold, archived_at, created_at, updated_at
     FROM product_sheets p";
 
 /// Complète les fiches : nom affiché, chemin de catégorie, lots et stock.
@@ -275,7 +286,7 @@ async fn complete(
         .map(|category| (category.id.clone(), category))
         .collect();
     let mut by_sheet: HashMap<String, Vec<LotSummary>> = HashMap::new();
-    for lot in lots::list_lots(pool, None).await? {
+    for lot in lots::list_lots(pool, None, None).await? {
         if let Some(sheet_id) = lot.product_id.clone() {
             by_sheet.entry(sheet_id).or_default().push(lot);
         }
@@ -290,13 +301,17 @@ async fn complete(
                 .and_then(|id| categories.get(id))
                 .map(|category| category.path.clone());
             let lots = by_sheet.get(&sheet.id).map(Vec::as_slice).unwrap_or(&[]);
+            let active: Vec<_> = lots
+                .iter()
+                .filter(|lot| lot.archived_at.is_none())
+                .collect();
             sheet.lot_count = lots.len() as i64;
-            sheet.stock = lots
+            sheet.stock = active
                 .iter()
                 .filter(|lot| !lot.expired)
                 .map(|lot| lot.stock)
                 .sum();
-            sheet.expired_stock = lots
+            sheet.expired_stock = active
                 .iter()
                 .filter(|lot| lot.expired)
                 .map(|lot| lot.stock)
@@ -306,9 +321,10 @@ async fn complete(
                 sheet.category_id.as_deref(),
                 &categories,
             );
-            sheet.low_stock = applied
-                .as_ref()
-                .is_some_and(|applied| low_stock::is_low(sheet.stock, applied.threshold));
+            sheet.low_stock = !active.is_empty()
+                && applied
+                    .as_ref()
+                    .is_some_and(|applied| low_stock::is_low(sheet.stock, applied.threshold));
             sheet.alert_threshold = applied.as_ref().map(|applied| applied.threshold);
             sheet.alert_source = applied.and_then(|applied| applied.source);
             sheet
@@ -321,21 +337,24 @@ async fn complete(
 pub async fn list_sheets(
     pool: &SqlitePool,
     search: Option<String>,
+    archived: Option<bool>,
 ) -> Result<Vec<ProductSheetView>, LotError> {
     let pattern = sql::like_pattern(search);
     let sheets = sqlx::query_as::<_, ProductSheetView>(&format!(
         "{SHEET_SELECT}
-         WHERE ?1 IS NULL
+         WHERE (?2 IS NULL OR (p.archived_at IS NOT NULL) = ?2)
+           AND (?1 IS NULL
             OR p.name LIKE ?1 ESCAPE '\\'
             OR p.brand LIKE ?1 ESCAPE '\\'
             OR EXISTS (
                 SELECT 1 FROM lots l
                 WHERE l.product_id = p.id
                   AND (l.lot_number LIKE ?1 ESCAPE '\\' OR l.name LIKE ?1 ESCAPE '\\')
-            )
+            ))
          ORDER BY COALESCE(p.brand, '') COLLATE NOCASE, p.name COLLATE NOCASE"
     ))
     .bind(pattern)
+    .bind(archived)
     .fetch_all(pool)
     .await?;
     complete(pool, sheets).await
@@ -392,6 +411,14 @@ pub async fn update_sheet(
     let normalized = normalize(&input)?;
     let mut tx = pool.begin().await?;
     let current = template(&mut tx, id).await?;
+    let archived: Option<String> =
+        sqlx::query_scalar("SELECT archived_at FROM product_sheets WHERE id = ?")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if archived.is_some() {
+        return Err(LotError::Invalid(SHEET_LOCKED));
+    }
     if current.single_use != input.single_use && lot_count(&mut tx, id).await? > 0 {
         return Err(LotError::Invalid(TYPE_LOCKED));
     }
@@ -435,6 +462,76 @@ pub async fn delete_sheet(pool: &SqlitePool, id: &str) -> Result<(), LotError> {
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SheetRemoval {
+    pub sheet_id: String,
+    pub archived: bool,
+    pub can_delete: bool,
+    pub lot_count: i64,
+}
+
+pub async fn removal_preview(pool: &SqlitePool, id: &str) -> Result<SheetRemoval, LotError> {
+    let sheet = get_sheet(pool, id).await?;
+    Ok(SheetRemoval {
+        sheet_id: sheet.id,
+        archived: sheet.archived_at.is_some(),
+        can_delete: sheet.lot_count == 0 && sheet.archived_at.is_none(),
+        lot_count: sheet.lot_count,
+    })
+}
+
+pub async fn archive_sheet(pool: &SqlitePool, id: &str) -> Result<(), LotError> {
+    let mut tx = pool.begin().await?;
+    let state: Option<(Option<String>, i64)> = sqlx::query_as(
+        "SELECT archived_at, (SELECT COUNT(*) FROM lots WHERE product_id = product_sheets.id)
+         FROM product_sheets WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((archived_at, lots)) = state else {
+        return Err(LotError::Invalid(SHEET_GONE));
+    };
+    if archived_at.is_some() {
+        return Err(LotError::Invalid("Cette fiche est déjà archivée"));
+    }
+    if lots == 0 {
+        return Err(LotError::Invalid(
+            "Rien n'est relié à cette fiche : supprime-la.",
+        ));
+    }
+    sqlx::query(&format!(
+        "UPDATE product_sheets SET archived_at = {NOW}, updated_at = {NOW} WHERE id = ?"
+    ))
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn restore_sheet(pool: &SqlitePool, id: &str) -> Result<(), LotError> {
+    let archived_at: Option<Option<String>> =
+        sqlx::query_scalar("SELECT archived_at FROM product_sheets WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+    let Some(archived_at) = archived_at else {
+        return Err(LotError::Invalid(SHEET_GONE));
+    };
+    if archived_at.is_none() {
+        return Err(LotError::Invalid("Cette fiche n'est pas archivée"));
+    }
+    sqlx::query(&format!(
+        "UPDATE product_sheets SET archived_at = NULL, updated_at = {NOW} WHERE id = ?"
+    ))
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

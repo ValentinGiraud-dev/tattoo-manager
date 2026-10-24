@@ -84,6 +84,7 @@ fn session_for(client_id: &str) -> SessionInput {
         body_area: None,
         description: None,
         notes: None,
+        title: None,
     }
 }
 

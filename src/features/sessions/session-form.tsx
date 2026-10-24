@@ -3,11 +3,12 @@ import { DateSelector } from "../../components/date-selector";
 import { btnGhost, btnPrimary, fieldClass, labelClass } from "../../components/styles";
 import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
 import { useConfirm } from "../../components/use-confirm";
-import { formatIsoDate } from "../../lib/format";
 import { formatDuration, formatTimeRange, SESSION_STATUS_LABELS } from "../../lib/labels";
-import { centsToInput, formatEuros, parseEuros } from "../../lib/money";
-import { useBillingStore } from "../../stores/billing-store";
-import { useClientsStore } from "../../stores/clients-store";
+import { centsToInput, parseEuros } from "../../lib/money";
+import { ClientCreateDialog } from "../clients/client-create-dialog";
+import { SessionProjectDialog } from "./session-project-dialog";
+import { confirmClosingStatus, settleHeldDeposits } from "./session-status-flow";
+import { useClientsStore, type Client } from "../../stores/clients-store";
 import { useProjectsStore, type Project } from "../../stores/projects-store";
 import {
   useSessionsStore,
@@ -40,14 +41,16 @@ export function SessionForm({
   onDone: (saved?: SessionListItem) => void;
 }) {
   const { create, update, overlaps } = useSessionsStore();
-  const { clients, load: loadClients } = useClientsStore();
+  const listActive = useClientsStore((state) => state.listActive);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [clientsReady, setClientsReady] = useState(false);
   const projectsStore = useProjectsStore();
-  const billing = useBillingStore();
   const confirm = useConfirm();
   const guardedLeave = useGuardedLeave();
 
   const [clientId, setClientId] = useState(session?.clientId ?? draft?.clientId ?? "");
   const [projectId, setProjectId] = useState(session?.projectId ?? draft?.projectId ?? "");
+  const [title, setTitle] = useState(session?.title ?? "");
   const [projects, setProjects] = useState<Project[]>([]);
   const [date, setDate] = useState<string | null>(session?.date ?? draft?.date ?? null);
   const [startTime, setStartTime] = useState(session?.startTime ?? draft?.startTime ?? "");
@@ -59,6 +62,8 @@ export function SessionForm({
   const [status, setStatus] = useState<SessionStatus>(session?.status ?? "PLANNED");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [pickingProject, setPickingProject] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useUnsavedChanges(dirty);
 
@@ -69,10 +74,21 @@ export function SessionForm({
     duration > 0 && !DURATIONS.includes(duration)
       ? [...DURATIONS, duration].sort((a, b) => a - b)
       : DURATIONS;
+  const linkedProject = projects.find((project) => project.id === projectId);
 
   useEffect(() => {
-    void loadClients("");
-  }, [loadClients]);
+    let cancelled = false;
+    void listActive()
+      .then((items) => {
+        if (!cancelled) setClients(items);
+      })
+      .finally(() => {
+        if (!cancelled) setClientsReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [listActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +108,35 @@ export function SessionForm({
 
   function touch() {
     setDirty(true);
+  }
+
+  /** Numéro proposé : les séances déjà sur ce projet, plus celle-ci si elle n'y est pas encore. */
+  function projectSessionNumber(project: Project) {
+    const already = session?.projectId === project.id;
+    return project.sessionCount + (already ? 0 : 1);
+  }
+
+  function chooseProject(project: Project) {
+    setProjectId(project.id);
+    if (title.trim() === "") {
+      setTitle(`${project.title} séance ${projectSessionNumber(project)}`);
+    }
+    if (project.bodyArea && bodyArea.trim() === "") setBodyArea(project.bodyArea);
+    setError(null);
+    touch();
+    setPickingProject(false);
+  }
+
+  function chooseCreatedClient(client: Client) {
+    setClients((current) =>
+      current.some((item) => item.id === client.id) ? current : [...current, client],
+    );
+    setClientId(client.id);
+    setProjectId("");
+    setProjects([]);
+    setError(null);
+    touch();
+    setCreatingClient(false);
   }
 
   async function createProject() {
@@ -116,55 +161,9 @@ export function SessionForm({
         status: "ACTIVE",
       });
       setProjects((current) => [created, ...current]);
-      setProjectId(created.id);
-      touch();
+      chooseProject(created);
     } catch (createError) {
       setError(String(createError));
-    }
-  }
-
-  /** Après une absence ou une annulation : que devient l'acompte en attente ? */
-  async function settleHeldDeposits(saved: SessionListItem) {
-    const bill = await billing.sessionBilling(saved.id);
-    const held = bill.deposits.filter((deposit) => deposit.status === "HELD");
-    if (held.length === 0) return;
-    const total = held.reduce((sum, deposit) => sum + deposit.amountCents, 0);
-    const event =
-      saved.status === "NO_SHOW"
-        ? `Absence du ${formatIsoDate(saved.date)}`
-        : `Annulation de la séance du ${formatIsoDate(saved.date)}`;
-    const result = await confirm({
-      title: "Que devient l'acompte ?",
-      details: held.map(
-        (deposit) =>
-          `${formatEuros(deposit.amountCents)} versé le ${formatIsoDate(deposit.receivedOn)}${deposit.projectTitle ? ` · ${deposit.projectTitle}` : ""}`,
-      ),
-      body: `${event}. ${held.length > 1 ? `Ces acomptes (${formatEuros(total)}) sont` : "Cet acompte est"} encore en attente.`,
-      choices: [
-        {
-          value: "KEEP",
-          label: "Le garder en attente",
-          description: "Il pourra être déduit d'une prochaine séance.",
-        },
-        {
-          value: "FORFEITED",
-          label: "Acompte perdu",
-          description: "Conservé par l'atelier ; il ne sera plus déduit.",
-        },
-        { value: "REFUNDED", label: "Le rembourser", description: "Rendu au client." },
-      ],
-      confirmLabel: "Valider",
-      cancelLabel: "Décider plus tard",
-    });
-    if (!result || result.choice === "KEEP" || result.choice === null) return;
-    const outcome = result.choice as "FORFEITED" | "REFUNDED";
-    for (const deposit of held) {
-      await billing.settleDeposit({
-        depositId: deposit.id,
-        outcome,
-        sessionId: saved.id,
-        reason: event,
-      });
     }
   }
 
@@ -189,6 +188,7 @@ export function SessionForm({
     const input: SessionInput = {
       clientId,
       projectId: projectId || null,
+      title: emptyToNull(title),
       date,
       startTime: time,
       durationMinutes: time && duration > 0 ? duration : null,
@@ -227,21 +227,13 @@ export function SessionForm({
 
       if ((status === "CANCELLED" || status === "NO_SHOW") && status !== session?.status) {
         const client = clients.find((item) => item.id === clientId);
-        const ok = await confirm({
-          title:
-            status === "NO_SHOW"
-              ? "Marquer le client comme absent ?"
-              : "Marquer cette séance comme annulée ?",
-          details: [
-            client ? `${client.firstName} ${client.lastName}` : "Client",
-            formatIsoDate(date),
-            ...(input.startTime ? [input.startTime] : []),
-          ],
-          body: `La séance reste dans l'historique avec le statut « ${SESSION_STATUS_LABELS[status]} ».`,
-          confirmLabel: status === "NO_SHOW" ? "Marquer absent" : "Annuler la séance",
-          cancelLabel: "Retour",
-          tone: "danger",
-        });
+        const ok = await confirmClosingStatus(
+          confirm,
+          status,
+          client ? `${client.firstName} ${client.lastName}` : "Client",
+          date,
+          input.startTime,
+        );
         if (!ok) return;
       }
 
@@ -251,7 +243,7 @@ export function SessionForm({
         (saved.status === "CANCELLED" || saved.status === "NO_SHOW") &&
         saved.status !== session?.status
       ) {
-        await settleHeldDeposits(saved);
+        await settleHeldDeposits(confirm, saved);
       }
       toast.success(session ? "Séance enregistrée" : "Séance créée");
       onDone(saved);
@@ -263,226 +255,266 @@ export function SessionForm({
   }
 
   return (
-    <form
-      onSubmit={(event) => void submit(event)}
-      onInput={(event) => {
-        if ((event.target as HTMLElement).getAttribute("name")) touch();
-      }}
-      className="mx-auto flex max-w-xl flex-col gap-4 px-8 py-10"
-    >
-      <div>
-        <button
-          type="button"
-          onClick={() => void guardedLeave(() => onDone())}
-          className="mb-4 text-[13px] text-fg-muted hover:text-fg"
-        >
-          ← Retour
-        </button>
-        <h1 className="text-[24px] font-medium tracking-tight">
-          {session ? "Modifier la séance" : "Nouvelle séance"}
-        </h1>
-      </div>
-
-      <label className={labelClass}>
-        Client *
-        <select
-          required
-          value={clientId}
-          onChange={(event) => {
-            setClientId(event.target.value);
-            setProjectId("");
-            setProjects([]);
-            touch();
-          }}
-          disabled={clientLocked}
-          className={fieldClass}
-        >
-          <option value="" disabled>
-            Choisir un client
-          </option>
-          {clients.map((client) => (
-            <option key={client.id} value={client.id}>
-              {client.lastName} {client.firstName}
-            </option>
-          ))}
-        </select>
-        {clientLocked && (
-          <span className="mt-1.5 block text-[12.5px] font-normal text-fg-muted">
-            Des produits, acomptes ou paiements sont rattachés à cette séance : elle reste attachée
-            à ce client.
-          </span>
-        )}
-      </label>
-
-      <div>
-        <label htmlFor="session-project" className={labelClass}>
-          Projet
-        </label>
-        <div className="mt-1.5 flex gap-2">
-          <select
-            id="session-project"
-            value={projectId}
-            onChange={(event) => {
-              const next = event.target.value;
-              setProjectId(next);
-              const project = projects.find((item) => item.id === next);
-              if (project?.bodyArea && bodyArea.trim() === "") setBodyArea(project.bodyArea);
-              touch();
-            }}
-            disabled={!clientId}
-            className={fieldClass.replace("mt-1.5", "")}
-          >
-            <option value="">Séance isolée (sans projet)</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.title}
-                {project.status !== "ACTIVE" ? " (terminé ou abandonné)" : ""}
-              </option>
-            ))}
-          </select>
+    <>
+      <form
+        onSubmit={(event) => void submit(event)}
+        onInput={(event) => {
+          if ((event.target as HTMLElement).getAttribute("name")) touch();
+        }}
+        className="mx-auto flex max-w-xl flex-col gap-4 px-8 py-10"
+      >
+        <div>
           <button
             type="button"
-            onClick={() => void createProject()}
-            disabled={!clientId}
-            className={`${btnGhost} shrink-0`}
+            onClick={() => void guardedLeave(() => onDone())}
+            className="mb-4 text-[13px] text-fg-muted hover:text-fg"
           >
-            Nouveau projet
+            ← Retour
+          </button>
+          <h1 className="text-[24px] font-medium tracking-tight">
+            {session ? "Modifier la séance" : "Nouvelle séance"}
+          </h1>
+        </div>
+
+        <div>
+          <label htmlFor="session-client" className={labelClass}>
+            Client *
+          </label>
+          <div className="mt-1.5 flex gap-2">
+            <select
+              id="session-client"
+              required
+              value={clientId}
+              onChange={(event) => {
+                setClientId(event.target.value);
+                setProjectId("");
+                setProjects([]);
+                touch();
+              }}
+              disabled={clientLocked}
+              className={fieldClass.replace("mt-1.5", "")}
+            >
+              <option value="" disabled>
+                Choisir un client
+              </option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.lastName} {client.firstName}
+                </option>
+              ))}
+            </select>
+            {!clientLocked && (
+              <button
+                type="button"
+                onClick={() => setCreatingClient(true)}
+                className={`${btnGhost} shrink-0`}
+              >
+                Nouveau client
+              </button>
+            )}
+          </div>
+          {clientLocked && (
+            <p className="mt-1.5 text-[12.5px] text-fg-muted">
+              Des produits, acomptes ou paiements sont rattachés à cette séance : elle reste
+              attachée à ce client.
+            </p>
+          )}
+          {!clientLocked && clientsReady && clients.length === 0 && (
+            <p className="mt-1.5 text-[12.5px] text-fg-muted">
+              Aucun client pour l'instant. Crée-le ici, la séance reste ouverte.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="session-title" className={labelClass}>
+            Titre de la séance
+          </label>
+          <div className="mt-1.5 flex items-center gap-2">
+            <input
+              id="session-title"
+              value={title}
+              onChange={(event) => {
+                setTitle(event.target.value);
+                touch();
+              }}
+              placeholder="Ex. Retouche ombrage"
+              className={`${fieldClass.replace("mt-1.5", "")} min-w-0 flex-1`}
+            />
+            <button
+              type="button"
+              onClick={() => setPickingProject(true)}
+              disabled={!clientId}
+              aria-label={
+                linkedProject ? `Changer le projet, ${linkedProject.title}` : "Lier à un projet"
+              }
+              className={`${btnGhost} max-w-44 shrink-0 truncate`}
+            >
+              {linkedProject ? linkedProject.title : "Lier à un projet"}
+            </button>
+            {linkedProject && (
+              <button
+                type="button"
+                onClick={() => {
+                  setProjectId("");
+                  touch();
+                }}
+                className={`${btnGhost} shrink-0`}
+              >
+                Retirer
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="session-date" className={labelClass}>
+            Date *
+          </label>
+          <DateSelector
+            id="session-date"
+            value={date}
+            onChange={(value) => {
+              setDate(value);
+              touch();
+            }}
+            placeholder="Choisir la date de séance"
+            minYear={currentYear - 10}
+            maxYear={currentYear + 2}
+          />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className={labelClass}>
+            Heure de début
+            <input
+              type="time"
+              step={900}
+              value={startTime}
+              onChange={(event) => {
+                setStartTime(event.target.value);
+                touch();
+              }}
+              className={fieldClass}
+            />
+          </label>
+          <label className={labelClass}>
+            Durée
+            <select
+              value={duration}
+              onChange={(event) => {
+                setDuration(Number(event.target.value));
+                touch();
+              }}
+              disabled={startTime === ""}
+              className={fieldClass}
+            >
+              <option value={0}>Non précisée</option>
+              {durationOptions.map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {formatDuration(minutes)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className={labelClass}>
+            Prix de la séance (€)
+            <input
+              inputMode="decimal"
+              value={price}
+              onChange={(event) => {
+                setPrice(event.target.value);
+                touch();
+              }}
+              placeholder="Ex. 250"
+              className={fieldClass}
+            />
+          </label>
+          <label className={labelClass}>
+            Statut *
+            <select
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value as SessionStatus);
+                touch();
+              }}
+              className={fieldClass}
+            >
+              {(Object.keys(SESSION_STATUS_LABELS) as SessionStatus[]).map((value) => (
+                <option key={value} value={value}>
+                  {SESSION_STATUS_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <label className={labelClass}>
+          Zone du corps
+          <input
+            value={bodyArea}
+            onChange={(event) => {
+              setBodyArea(event.target.value);
+              touch();
+            }}
+            placeholder="Ex. avant-bras gauche"
+            className={fieldClass}
+          />
+        </label>
+
+        <label className={labelClass}>
+          Description
+          <textarea
+            name="description"
+            rows={3}
+            defaultValue={session?.description ?? ""}
+            className={fieldClass}
+          />
+        </label>
+
+        <label className={labelClass}>
+          Notes
+          <textarea
+            name="notes"
+            rows={3}
+            defaultValue={session?.notes ?? ""}
+            className={fieldClass}
+          />
+        </label>
+
+        {error && <p className="text-[13px] text-danger">{error}</p>}
+
+        <div className="flex items-center gap-3 pt-1">
+          <button type="submit" disabled={saving} className={btnPrimary}>
+            {saving ? "Enregistrement…" : "Enregistrer"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void guardedLeave(() => onDone())}
+            className={btnGhost}
+          >
+            Annuler
           </button>
         </div>
-      </div>
-
-      <div>
-        <label htmlFor="session-date" className={labelClass}>
-          Date *
-        </label>
-        <DateSelector
-          id="session-date"
-          value={date}
-          onChange={(value) => {
-            setDate(value);
-            touch();
-          }}
-          placeholder="Choisir la date de séance"
-          minYear={currentYear - 10}
-          maxYear={currentYear + 2}
+      </form>
+      {creatingClient && (
+        <ClientCreateDialog
+          onCreated={chooseCreatedClient}
+          onClose={() => setCreatingClient(false)}
         />
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className={labelClass}>
-          Heure de début
-          <input
-            type="time"
-            step={900}
-            value={startTime}
-            onChange={(event) => {
-              setStartTime(event.target.value);
-              touch();
-            }}
-            className={fieldClass}
-          />
-        </label>
-        <label className={labelClass}>
-          Durée
-          <select
-            value={duration}
-            onChange={(event) => {
-              setDuration(Number(event.target.value));
-              touch();
-            }}
-            disabled={startTime === ""}
-            className={fieldClass}
-          >
-            <option value={0}>Non précisée</option>
-            {durationOptions.map((minutes) => (
-              <option key={minutes} value={minutes}>
-                {formatDuration(minutes)}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className={labelClass}>
-          Prix de la séance (€)
-          <input
-            inputMode="decimal"
-            value={price}
-            onChange={(event) => {
-              setPrice(event.target.value);
-              touch();
-            }}
-            placeholder="Ex. 250"
-            className={fieldClass}
-          />
-        </label>
-        <label className={labelClass}>
-          Statut *
-          <select
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value as SessionStatus);
-              touch();
-            }}
-            className={fieldClass}
-          >
-            {(Object.keys(SESSION_STATUS_LABELS) as SessionStatus[]).map((value) => (
-              <option key={value} value={value}>
-                {SESSION_STATUS_LABELS[value]}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <label className={labelClass}>
-        Zone du corps
-        <input
-          value={bodyArea}
-          onChange={(event) => {
-            setBodyArea(event.target.value);
-            touch();
-          }}
-          placeholder="Ex. avant-bras gauche"
-          className={fieldClass}
+      )}
+      {pickingProject && (
+        <SessionProjectDialog
+          projects={projects}
+          selectedId={projectId}
+          onSelect={chooseProject}
+          onCreate={() => void createProject()}
+          onClose={() => setPickingProject(false)}
         />
-      </label>
-
-      <label className={labelClass}>
-        Description
-        <textarea
-          name="description"
-          rows={3}
-          defaultValue={session?.description ?? ""}
-          className={fieldClass}
-        />
-      </label>
-
-      <label className={labelClass}>
-        Notes
-        <textarea
-          name="notes"
-          rows={3}
-          defaultValue={session?.notes ?? ""}
-          className={fieldClass}
-        />
-      </label>
-
-      {error && <p className="text-[13px] text-danger">{error}</p>}
-
-      <div className="flex items-center gap-3 pt-1">
-        <button type="submit" disabled={saving} className={btnPrimary}>
-          {saving ? "Enregistrement…" : "Enregistrer"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void guardedLeave(() => onDone())}
-          className={btnGhost}
-        >
-          Annuler
-        </button>
-      </div>
-    </form>
+      )}
+    </>
   );
 }

@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "dist:mac": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri build --target universal-apple-darwin",
+    "release": "node scripts/release.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

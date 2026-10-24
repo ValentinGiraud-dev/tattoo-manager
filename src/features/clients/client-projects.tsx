@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { ArchiveBanner, ArchiveMention } from "../../components/archive-controls";
 import { MoneyForm } from "../../components/money-form";
 import { btnGhost, btnPrimary, cardClass, fieldClass, labelClass } from "../../components/styles";
 import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
@@ -160,11 +161,13 @@ function ProjectForm({
 
 function ProjectDetail({
   project,
+  clientArchived,
   onEdit,
   onBack,
   onChanged,
 }: {
   project: Project;
+  clientArchived: boolean;
   onEdit: () => void;
   onBack: () => void;
   onChanged: (project: Project) => void;
@@ -176,7 +179,27 @@ function ProjectDetail({
   const [sessions, setSessions] = useState<SessionListItem[] | null>(null);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [action, setAction] = useState<"delete" | "archive" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const archived = project.archivedAt !== null;
+  const writable = !archived && !clientArchived;
+
+  useEffect(() => {
+    if (archived) return;
+    let cancelled = false;
+    projects
+      .previewRemoval(project.id)
+      .then((preview) => {
+        if (!cancelled) setAction(preview.canDelete ? "delete" : "archive");
+      })
+      .catch(() => {
+        if (!cancelled) setAction(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [archived, project.id, projects]);
 
   useEffect(() => {
     let cancelled = false;
@@ -229,8 +252,91 @@ function ProjectDetail({
   const remaining =
     project.quotedPriceCents === null ? null : project.quotedPriceCents - project.receivedCents;
 
+  async function removeOrArchive() {
+    setError(null);
+    let preview;
+    try {
+      preview = await projects.previewRemoval(project.id);
+    } catch (previewError) {
+      setError(String(previewError));
+      return;
+    }
+    if (preview.canDelete) {
+      const ok = await confirm({
+        title: "Supprimer ce projet ?",
+        details: [project.title],
+        body: "Le projet sera supprimé définitivement. Cette action est irréversible.",
+        confirmLabel: "Supprimer le projet",
+        tone: "danger",
+      });
+      if (!ok) return;
+      setBusy(true);
+      try {
+        await projects.remove(project.id);
+        toast.success("Projet supprimé");
+        onBack();
+      } catch (deleteError) {
+        setError(String(deleteError));
+        setBusy(false);
+      }
+      return;
+    }
+    const ok = await confirm({
+      title: "Archiver ce projet ?",
+      details: [
+        project.title,
+        `${preview.sessionCount} séance${preview.sessionCount > 1 ? "s" : ""}`,
+      ],
+      body: "Il quitte le sélecteur des nouvelles séances. Les séances déjà prévues restent au planning, avec la mention « projet archivé ».",
+      confirmLabel: "Archiver le projet",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await projects.archive(project.id);
+      toast.success("Projet archivé");
+      onChanged(await projects.get(project.id));
+    } catch (archiveError) {
+      setError(String(archiveError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unarchive() {
+    const ok = await confirm({
+      title: "Désarchiver ce projet ?",
+      body: "Il revient dans le sélecteur des nouvelles séances.",
+      confirmLabel: "Désarchiver",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await projects.restore(project.id);
+      toast.success("Projet désarchivé");
+      onChanged(await projects.get(project.id));
+    } catch (restoreError) {
+      setError(String(restoreError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3">
+      {clientArchived && (
+        <ArchiveBanner>
+          Client archivé. Ce projet est en lecture seule. Désarchive le client pour le modifier.
+        </ArchiveBanner>
+      )}
+      {archived && (
+        <ArchiveBanner>
+          Projet archivé. Il est en lecture seule et absent du sélecteur. Ses séances restent au
+          planning.
+        </ArchiveBanner>
+      )}
       <button
         type="button"
         onClick={onBack}
@@ -240,15 +346,41 @@ function ProjectDetail({
       </button>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-medium">{project.title}</p>
+          <p className="text-[15px] font-medium">
+            {project.title}
+            {archived && <ArchiveMention>projet archivé</ArchiveMention>}
+          </p>
           <p className="mt-0.5 text-[12.5px] text-fg-muted">
             {PROJECT_STATUS_LABELS[project.status]}
             {project.bodyArea ? ` · ${project.bodyArea}` : ""}
           </p>
         </div>
-        <button type="button" onClick={onEdit} className={btnGhost}>
-          Modifier
-        </button>
+        {archived && !clientArchived ? (
+          <button
+            type="button"
+            onClick={() => void unarchive()}
+            disabled={busy}
+            className={btnGhost}
+          >
+            {busy ? "Désarchivage…" : "Désarchiver"}
+          </button>
+        ) : writable ? (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void removeOrArchive()}
+              disabled={busy}
+              className={btnGhost}
+            >
+              <span className="text-danger">
+                {busy ? "En cours…" : action === "delete" ? "Supprimer" : "Archiver"}
+              </span>
+            </button>
+            <button type="button" onClick={onEdit} className={btnGhost}>
+              Modifier
+            </button>
+          </div>
+        ) : null}
       </div>
       {project.description && (
         <p className="text-[13px] whitespace-pre-wrap text-fg-muted">{project.description}</p>
@@ -283,20 +415,22 @@ function ProjectDetail({
         <h3 className="text-[13px] font-medium text-fg-muted">
           Séances {sessions ? `(${sessions.length})` : ""}
         </h3>
-        <button
-          type="button"
-          onClick={() =>
-            newSession({
-              date: todayIso(),
-              startTime: null,
-              clientId: project.clientId,
-              projectId: project.id,
-            })
-          }
-          className={btnGhost}
-        >
-          Planifier une séance
-        </button>
+        {writable && (
+          <button
+            type="button"
+            onClick={() =>
+              newSession({
+                date: todayIso(),
+                startTime: null,
+                clientId: project.clientId,
+                projectId: project.id,
+              })
+            }
+            className={btnGhost}
+          >
+            Planifier une séance
+          </button>
+        )}
       </div>
       {sessions === null ? (
         <p className="text-[13px] text-fg-muted">Chargement…</p>
@@ -315,10 +449,12 @@ function ProjectDetail({
               >
                 <span className="min-w-0 flex-1">
                   {formatIsoDate(session.date)}
+                  {session.title ? ` · ${session.title}` : ""}
                   {session.startTime
                     ? ` · ${formatTimeRange(session.startTime, session.durationMinutes)}`
                     : ""}
                   {session.priceCents !== null ? ` · ${formatEuros(session.priceCents)}` : ""}
+                  {session.archivedAt && <ArchiveMention>séance archivée</ArchiveMention>}
                 </span>
                 <StatusBadge status={session.status} />
               </button>
@@ -329,13 +465,13 @@ function ProjectDetail({
 
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-[13px] font-medium text-fg-muted">Acomptes</h3>
-        {!adding && (
+        {!adding && writable && (
           <button type="button" onClick={() => setAdding(true)} className={btnGhost}>
             Enregistrer un acompte
           </button>
         )}
       </div>
-      {adding && (
+      {adding && writable && (
         <MoneyForm
           title={`Acompte pour « ${project.title} »`}
           submitLabel="Enregistrer l'acompte"
@@ -380,7 +516,7 @@ function ProjectDetail({
                   {deposit.voidReason ? ` : ${deposit.voidReason}` : ""}
                 </p>
               </div>
-              {deposit.status === "HELD" && (
+              {writable && deposit.status === "HELD" && (
                 <button
                   type="button"
                   onClick={() => void voidDeposit(deposit)}
@@ -407,7 +543,13 @@ type Mode =
   { kind: "list" } | { kind: "form"; project?: Project } | { kind: "detail"; project: Project };
 
 /** Projets du client : liste, création, détail. Monté avec `key={clientId}`. */
-export function ClientProjects({ clientId }: { clientId: string }) {
+export function ClientProjects({
+  clientId,
+  clientArchived,
+}: {
+  clientId: string;
+  clientArchived: boolean;
+}) {
   const store = useProjectsStore();
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [mode, setMode] = useState<Mode>({ kind: "list" });
@@ -443,7 +585,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
               Une pièce en une ou plusieurs séances, avec son prix et ses acomptes.
             </p>
           </div>
-          {mode.kind === "list" && (
+          {mode.kind === "list" && !clientArchived && (
             <button type="button" onClick={() => setMode({ kind: "form" })} className={btnGhost}>
               Nouveau projet
             </button>
@@ -471,6 +613,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
         <ProjectDetail
           key={mode.project.id}
           project={mode.project}
+          clientArchived={clientArchived}
           onEdit={() => setMode({ kind: "form", project: mode.project })}
           onBack={() => void refresh({ kind: "list" })}
           onChanged={(project) => setMode({ kind: "detail", project })}
@@ -491,7 +634,10 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                 className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] font-medium">{project.title}</span>
+                  <span className="block truncate text-[14px] font-medium">
+                    {project.title}
+                    {project.archivedAt && <ArchiveMention>archivé</ArchiveMention>}
+                  </span>
                   <span className="mt-0.5 block truncate text-[12.5px] text-fg-muted">
                     {PROJECT_STATUS_LABELS[project.status]} · {project.sessionCount} séance
                     {project.sessionCount > 1 ? "s" : ""}

@@ -111,7 +111,7 @@ pub struct LowStockReport {
 
 /// Fiches et catégories en stock bas, du stock le plus faible au plus fort.
 pub async fn report(pool: &SqlitePool) -> Result<LowStockReport, LotError> {
-    let sheets = product_sheets::list_sheets(pool, None).await?;
+    let sheets = product_sheets::list_sheets(pool, None, None).await?;
     let categories = categories::list_categories(pool).await?;
 
     let mut sheet_alerts: Vec<SheetAlert> = sheets

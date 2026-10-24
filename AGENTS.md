@@ -31,7 +31,8 @@ pnpm test:e2e                    # Playwright : parcours d'écran avec faux back
 cd src-tauri && cargo test       # tests Rust (règles métier, sauvegardes)
 cd src-tauri && cargo fmt --check
 cd src-tauri && cargo clippy --all-targets -- -D warnings
-pnpm dist:mac                    # build universel macOS (voir skill tracink-release)
+pnpm dist:mac                    # build universel macOS, sans publier
+pnpm run release                 # version, build universel, release GitHub (voir skill tracink-release)
 ```
 
 Données de l'app en local : `~/Library/Application Support/com.tracink.app/` (`database.sqlite` chiffrée SQLCipher, `vault.json`, `backups/`, `photos/`, `documents/` chiffrés, `settings.json`). Ne jamais travailler sur la base réelle de la tatoueuse : copie-la d'abord. Pour l'ouvrir hors de l'app, il faut la clé maître (voir `security-privacy.mdc`).

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+use super::archive;
 use super::error::LotError;
 use super::expiry;
 use super::product_sheets::{self, ProductSheetView};
@@ -36,6 +37,8 @@ pub struct SessionUsageItem {
     /// Motif d'annulation si le lien a été annulé (le lien reste dans l'historique).
     pub void_reason: Option<String>,
     pub voided_at: Option<String>,
+    pub lot_archived: bool,
+    pub product_archived: bool,
 }
 
 impl SessionUsageItem {
@@ -64,6 +67,8 @@ pub struct LotSessionItem {
     pub body_area: Option<String>,
     pub client_first_name: String,
     pub client_last_name: String,
+    pub client_archived: bool,
+    pub session_archived: bool,
     pub quantity: i64,
     pub void_reason: Option<String>,
 }
@@ -147,12 +152,15 @@ SELECT
     END AS quantity,
     s.date AS session_date,
     v.reason AS void_reason,
-    v.created_at AS voided_at
+    v.created_at AS voided_at,
+    (l.archived_at IS NOT NULL) AS lot_archived,
+    (ps.archived_at IS NOT NULL) AS product_archived
 FROM session_usages su
 INNER JOIN sessions s ON s.id = su.session_id
 LEFT JOIN session_usage_voids v ON v.session_usage_id = su.id
 LEFT JOIN units u ON u.id = su.unit_id
 INNER JOIN lots l ON l.id = COALESCE(su.lot_id, u.lot_id)
+LEFT JOIN product_sheets ps ON ps.id = l.product_id
 "#;
 
 async fn ensure_session(pool: &SqlitePool, session_id: &str) -> Result<(), LotError> {
@@ -208,6 +216,8 @@ pub async fn list_lot_sessions(
             s.body_area,
             c.first_name AS client_first_name,
             c.last_name AS client_last_name,
+            (c.archived_at IS NOT NULL) AS client_archived,
+            (s.archived_at IS NOT NULL) AS session_archived,
             CASE
                 WHEN su.lot_id IS NOT NULL THEN COALESCE((
                     SELECT SUM(-m.quantity)
@@ -258,6 +268,7 @@ pub async fn list_linkable(
                 l.product_id
             FROM lots l
             WHERE l.single_use = 1
+              AND l.archived_at IS NULL
               AND COALESCE((
                   SELECT SUM(m.quantity) FROM stock_movements m WHERE m.lot_id = l.id
               ), 0) > 0
@@ -281,6 +292,7 @@ pub async fn list_linkable(
             FROM units u
             INNER JOIN lots l ON l.id = u.lot_id
             WHERE l.single_use = 0
+              AND l.archived_at IS NULL
               AND COALESCE((
                   SELECT SUM(m.quantity) FROM stock_movements m WHERE m.unit_id = u.id
               ), 0) > 0
@@ -307,11 +319,12 @@ pub async fn list_linkable(
         .collect();
     // Stock de la fiche et seuil : l'écran prévient si le lien fait passer en stock bas.
     if items.iter().any(|item| item.product_id.is_some()) {
-        let sheets: HashMap<String, ProductSheetView> = product_sheets::list_sheets(pool, None)
-            .await?
-            .into_iter()
-            .map(|sheet| (sheet.id.clone(), sheet))
-            .collect();
+        let sheets: HashMap<String, ProductSheetView> =
+            product_sheets::list_sheets(pool, None, None)
+                .await?
+                .into_iter()
+                .map(|sheet| (sheet.id.clone(), sheet))
+                .collect();
         for item in &mut items {
             if let Some(sheet) = item.product_id.as_ref().and_then(|id| sheets.get(id)) {
                 item.product_name = Some(sheet.display_name.clone());
@@ -344,6 +357,7 @@ pub async fn link_session(
     }
 
     let mut tx = pool.begin().await?;
+    archive::ensure_session_writable(&mut tx, &session_id).await?;
     let session_exists: Option<i64> =
         sqlx::query_scalar("SELECT 1 FROM sessions WHERE id = ? LIMIT 1")
             .bind(&session_id)
@@ -520,6 +534,7 @@ pub async fn void_usage(
     let Some((session_id, lot_id, already_voided)) = usage else {
         return Err(LotError::NotFound);
     };
+    archive::ensure_session_writable(&mut tx, &session_id).await?;
     if already_voided {
         return Err(LotError::Invalid("Ce lien est déjà annulé"));
     }

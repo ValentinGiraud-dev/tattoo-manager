@@ -32,6 +32,8 @@ function lot(id: string, name: string, patch: Partial<LotSummary> = {}): LotSumm
     movementCount: 1,
     sessionCount: 0,
     expired: false,
+    archivedAt: null,
+    productArchived: false,
     ...patch,
   };
 }

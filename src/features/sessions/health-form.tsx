@@ -95,14 +95,17 @@ function YesNoQuestion({
 export function HealthFormView({
   paperwork,
   onDone,
+  readOnly = false,
 }: {
   paperwork: Paperwork;
   onDone: (next?: Paperwork) => void;
+  readOnly?: boolean;
 }) {
   const { saveHealth, print } = usePaperworkStore();
   const confirm = useConfirm();
   const guardedLeave = useGuardedLeave();
   const signed = paperwork.healthSigned;
+  const frozen = signed || readOnly;
   const [answers, setAnswers] = useState<HealthAnswers>(
     paperwork.health?.answers ?? emptyHealthAnswers(),
   );
@@ -122,7 +125,7 @@ export function HealthFormView({
         label={label}
         value={answers[key]}
         onChange={(value) => update(key, value)}
-        disabled={signed}
+        disabled={frozen}
       />
     );
   }
@@ -232,7 +235,7 @@ export function HealthFormView({
               onChange={(event) =>
                 update("healingTreatmentDetails", emptyToNull(event.target.value))
               }
-              disabled={signed}
+              disabled={frozen}
               className={fieldClass}
             />
           </label>
@@ -240,7 +243,7 @@ export function HealthFormView({
       </Section>
 
       <Section title="Allergies">
-        <fieldset disabled={signed} className="flex flex-col gap-2">
+        <fieldset disabled={frozen} className="flex flex-col gap-2">
           <legend className="mb-2 text-[13.5px] text-fg">
             Allergique à l&apos;un des éléments suivants ?
           </legend>
@@ -267,7 +270,7 @@ export function HealthFormView({
             <input
               value={answers.allergyOther ?? ""}
               onChange={(event) => update("allergyOther", emptyToNull(event.target.value))}
-              disabled={signed}
+              disabled={frozen}
               className={fieldClass}
             />
           </label>
@@ -284,7 +287,7 @@ export function HealthFormView({
             rows={3}
             value={answers.details ?? ""}
             onChange={(event) => update("details", emptyToNull(event.target.value))}
-            disabled={signed}
+            disabled={frozen}
             className={fieldClass}
           />
         </label>
@@ -300,7 +303,7 @@ export function HealthFormView({
                 type="button"
                 role="radio"
                 aria-checked={selected}
-                disabled={signed}
+                disabled={frozen}
                 onClick={() => update("professionalDecision", selected ? null : decision)}
                 className={[
                   "rounded-pill px-3.5 py-1.5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed",
@@ -322,7 +325,7 @@ export function HealthFormView({
             rows={2}
             value={answers.professionalComments ?? ""}
             onChange={(event) => update("professionalComments", emptyToNull(event.target.value))}
-            disabled={signed}
+            disabled={frozen}
             className={fieldClass}
           />
         </label>
@@ -330,7 +333,7 @@ export function HealthFormView({
 
       {error && <p className="text-[13px] text-danger">{error}</p>}
 
-      {!signed && (
+      {!frozen && (
         <div className="sticky bottom-0 -mx-8 flex items-center gap-3 border-t border-line bg-bg/95 px-8 py-3 backdrop-blur">
           <button type="submit" disabled={saving} className={btnPrimary}>
             {saving ? "Enregistrement…" : "Enregistrer"}

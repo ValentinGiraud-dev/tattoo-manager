@@ -10,7 +10,12 @@ import {
   type LinkableItem,
   type SessionUsageItem,
 } from "../../stores/products-store";
-import { useSessionsStore, type SessionListItem } from "../../stores/sessions-store";
+import {
+  sessionToInput,
+  useSessionsStore,
+  type SessionListItem,
+  type SessionStatus,
+} from "../../stores/sessions-store";
 import { useUIStore, type SessionIntent } from "../../stores/ui-store";
 import { ConsentFormView } from "./consent-form";
 import { HealthFormView } from "./health-form";
@@ -19,9 +24,11 @@ import { lowStockAfterLink } from "../../lib/low-stock";
 import { AuditHistory } from "../journal/audit-history";
 import { SessionForm, type SessionDraft } from "./session-form";
 import { SessionPaperwork } from "./session-paperwork";
+import { confirmClosingStatus, settleHeldDeposits } from "./session-status-flow";
 import { StatusBadge } from "./session-status";
 import { toast } from "../../stores/toast-store";
 import { BackButton } from "../../components/back-button";
+import { ArchiveBanner, ArchiveFilter, ArchiveMention } from "../../components/archive-controls";
 
 type View =
   | { kind: "list" }
@@ -32,7 +39,7 @@ function clientName(session: SessionListItem) {
   return `${session.clientFirstName} ${session.clientLastName}`;
 }
 
-function SessionProducts({ session }: { session: SessionListItem }) {
+function SessionProducts({ session, readOnly }: { session: SessionListItem; readOnly?: boolean }) {
   const sessionId = session.id;
   const { listSessionUsages, listLinkable, linkToSession, voidUsage } = useProductsStore();
   const openLot = useUIStore((state) => state.openLot);
@@ -195,7 +202,12 @@ function SessionProducts({ session }: { session: SessionListItem }) {
             Traçabilité : un lien ne se supprime pas, il s&apos;annule avec un motif.
           </p>
         </div>
-        <button type="button" onClick={() => setPickerOpen((open) => !open)} className={btnGhost}>
+        <button
+          type="button"
+          onClick={() => setPickerOpen((open) => !open)}
+          className={btnGhost}
+          hidden={readOnly}
+        >
           {pickerOpen ? "Fermer" : "Lier un produit"}
         </button>
       </div>
@@ -295,6 +307,8 @@ function SessionProducts({ session }: { session: SessionListItem }) {
                   >
                     {item.name}
                   </button>
+                  {item.lotArchived && <ArchiveMention>lot archivé</ArchiveMention>}
+                  {item.productArchived && <ArchiveMention>fiche archivée</ArchiveMention>}
                   <p className="mt-0.5 text-[12.5px] text-fg-muted">
                     Lot {item.lotNumber}
                     {" · "}
@@ -323,7 +337,7 @@ function SessionProducts({ session }: { session: SessionListItem }) {
                     )
                   )}
                 </div>
-                {!item.voidReason && (
+                {!item.voidReason && !readOnly && (
                   <button
                     type="button"
                     disabled={linking}
@@ -346,14 +360,166 @@ function SessionDetail({
   session,
   onEdit,
   onBack,
+  onRestored,
 }: {
   session: SessionListItem;
   onEdit: () => void;
   onBack: () => void;
+  onRestored: (session: SessionListItem) => void;
 }) {
   const [form, setForm] = useState<{ kind: FormKind; paperwork: Paperwork } | null>(null);
   const [paperworkVersion, setPaperworkVersion] = useState(0);
   const openClient = useUIStore((state) => state.openClient);
+  const { previewRemoval, remove, archive, restore, get, update, setAftercareExplained } =
+    useSessionsStore();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
+  const [aftercareBusy, setAftercareBusy] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState<{
+    id: string;
+    status: SessionStatus;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [action, setAction] = useState<"delete" | "archive" | null>(null);
+  const locked = session.archivedAt !== null || session.clientArchived;
+  const statusValue = pendingStatus?.id === session.id ? pendingStatus.status : session.status;
+
+  useEffect(() => {
+    if (locked) return;
+    let cancelled = false;
+    previewRemoval(session.id)
+      .then((preview) => {
+        if (!cancelled) setAction(preview.canDelete ? "delete" : "archive");
+      })
+      .catch(() => {
+        if (!cancelled) setAction(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [locked, previewRemoval, session.id]);
+
+  async function removeOrArchive() {
+    setError(null);
+    let preview;
+    try {
+      preview = await previewRemoval(session.id);
+    } catch (previewError) {
+      setError(String(previewError));
+      return;
+    }
+    if (preview.canDelete) {
+      const ok = await confirm({
+        title: "Supprimer cette séance ?",
+        body: "La séance sera supprimée définitivement. Cette action est irréversible.",
+        confirmLabel: "Supprimer la séance",
+        tone: "danger",
+      });
+      if (!ok) return;
+      setBusy(true);
+      try {
+        await remove(session.id);
+        toast.success("Séance supprimée");
+        onBack();
+      } catch (deleteError) {
+        setError(String(deleteError));
+        setBusy(false);
+      }
+      return;
+    }
+    const ok = await confirm({
+      title: "Archiver cette séance ?",
+      details: [
+        `${preview.usageCount} produit${preview.usageCount > 1 ? "s" : ""} lié${preview.usageCount > 1 ? "s" : ""}`,
+        `${preview.paymentCount} paiement${preview.paymentCount > 1 ? "s" : ""}`,
+      ],
+      body: "Elle quitte le planning et les listes. Les produits liés restent dans l'historique. Le stock n'est pas remis : pour défaire un lien, désarchive la séance puis annule le lien.",
+      confirmLabel: "Archiver la séance",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await archive(session.id);
+      toast.success("Séance archivée");
+      onBack();
+    } catch (archiveError) {
+      setError(String(archiveError));
+      setBusy(false);
+    }
+  }
+
+  async function changeStatus(next: SessionStatus) {
+    if (locked || next === session.status) return;
+    setPendingStatus({ id: session.id, status: next });
+    if (next === "CANCELLED" || next === "NO_SHOW") {
+      const ok = await confirmClosingStatus(
+        confirm,
+        next,
+        `${session.clientFirstName} ${session.clientLastName}`,
+        session.date,
+        session.startTime,
+      );
+      if (!ok) {
+        setPendingStatus(null);
+        return;
+      }
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await update(session.id, sessionToInput(session, next));
+      if (saved.status === "CANCELLED" || saved.status === "NO_SHOW") {
+        await settleHeldDeposits(confirm, saved);
+      }
+      toast.success("Statut mis à jour");
+      setPendingStatus(null);
+      onRestored(saved);
+    } catch (statusError) {
+      setPendingStatus(null);
+      setError(String(statusError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setAftercare(explained: boolean) {
+    const previous = session;
+    setAftercareBusy(true);
+    onRestored({ ...session, aftercareExplained: explained });
+    setError(null);
+    try {
+      const saved = await setAftercareExplained(session.id, explained);
+      toast.success(explained ? "Conseils d’hygiène notés" : "Case d’hygiène retirée");
+      onRestored(saved);
+    } catch (aftercareError) {
+      onRestored(previous);
+      setError(String(aftercareError));
+    } finally {
+      setAftercareBusy(false);
+    }
+  }
+
+  async function unarchive() {
+    const ok = await confirm({
+      title: "Désarchiver cette séance ?",
+      body: "Elle revient dans le planning et les listes.",
+      confirmLabel: "Désarchiver",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await restore(session.id);
+      toast.success("Séance désarchivée");
+      const fresh = await get(session.id);
+      onRestored(fresh);
+    } catch (restoreError) {
+      setError(String(restoreError));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (form) {
     const close = () => {
@@ -361,9 +527,9 @@ function SessionDetail({
       setPaperworkVersion((version) => version + 1);
     };
     return form.kind === "HEALTH" ? (
-      <HealthFormView paperwork={form.paperwork} onDone={close} />
+      <HealthFormView paperwork={form.paperwork} onDone={close} readOnly={locked} />
     ) : (
-      <ConsentFormView paperwork={form.paperwork} onDone={close} />
+      <ConsentFormView paperwork={form.paperwork} onDone={close} readOnly={locked} />
     );
   }
 
@@ -372,6 +538,7 @@ function SessionDetail({
     ["Date", formatIsoDate(session.date)],
     ["Horaire", formatTimeRange(session.startTime, session.durationMinutes)],
     ["Statut", SESSION_STATUS_LABELS[session.status]],
+    ["Titre", session.title],
     ["Projet", session.projectTitle],
     ["Prix", session.priceCents === null ? null : formatEuros(session.priceCents)],
     ["Zone", session.bodyArea],
@@ -384,13 +551,38 @@ function SessionDetail({
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-5 px-8 py-10">
       <BackButton listLabel="Séances" onList={onBack} />
+      {session.archivedAt && (
+        <ArchiveBanner>
+          Séance archivée. Elle est en lecture seule et absente du planning. Désarchive-la pour la
+          modifier.
+        </ArchiveBanner>
+      )}
+      {!session.archivedAt && session.clientArchived && (
+        <ArchiveBanner>
+          Client archivé. Cette séance est en lecture seule. Désarchive le client pour la modifier.
+        </ArchiveBanner>
+      )}
+      {error && <p className="text-[13px] text-danger">{error}</p>}
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          <div className="mb-2">
-            <StatusBadge status={session.status} />
-          </div>
+          <label className="mb-2 block w-fit text-[12px] text-fg-faint">
+            Statut
+            <select
+              aria-label="Statut de la séance"
+              value={statusValue}
+              disabled={locked || busy}
+              onChange={(event) => void changeStatus(event.target.value as SessionStatus)}
+              className="mt-1 block rounded-md border border-line-strong bg-bg px-2.5 py-1 text-[13px] text-fg outline-none focus:border-accent disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-fg-muted"
+            >
+              {(Object.keys(SESSION_STATUS_LABELS) as SessionStatus[]).map((value) => (
+                <option key={value} value={value}>
+                  {SESSION_STATUS_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </label>
           <h1 className="text-[24px] font-medium tracking-tight">
-            {session.bodyArea ?? session.projectTitle ?? "Séance"}
+            {session.title ?? session.projectTitle ?? session.bodyArea ?? "Séance"}
           </h1>
           <p className="mt-1 text-[13px] text-fg-muted">
             <button
@@ -399,20 +591,53 @@ function SessionDetail({
               className="underline-offset-2 hover:text-fg hover:underline"
             >
               {clientName(session)}
+              {session.clientArchived && <ArchiveMention>client archivé</ArchiveMention>}
             </button>{" "}
             · {formatIsoDate(session.date)}
             {session.startTime ? ` · ${session.startTime}` : ""}
           </p>
         </div>
-        <button type="button" onClick={onEdit} className={btnPrimary}>
-          Modifier
-        </button>
+        <div className="flex gap-2">
+          {session.archivedAt && !session.clientArchived ? (
+            <button
+              type="button"
+              onClick={() => void unarchive()}
+              disabled={busy}
+              className={btnPrimary}
+            >
+              {busy ? "Désarchivage…" : "Désarchiver"}
+            </button>
+          ) : (
+            !locked && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void removeOrArchive()}
+                  disabled={busy}
+                  className={btnGhost}
+                >
+                  <span className="text-danger">
+                    {busy ? "En cours…" : action === "delete" ? "Supprimer" : "Archiver"}
+                  </span>
+                </button>
+                <button type="button" onClick={onEdit} className={btnPrimary}>
+                  Modifier
+                </button>
+              </>
+            )
+          )}
+        </div>
       </div>
       <dl className="grid gap-3 rounded-lg border border-line bg-surface p-4">
         {rows.map(([label, value]) => (
           <div key={label} className="grid grid-cols-[9rem_1fr] gap-3 text-[13.5px]">
             <dt className="text-fg-faint">{label}</dt>
-            <dd className="whitespace-pre-wrap text-fg">{value ?? "—"}</dd>
+            <dd className="whitespace-pre-wrap text-fg">
+              {value ?? "—"}
+              {label === "Projet" && session.projectArchived && (
+                <ArchiveMention>projet archivé</ArchiveMention>
+              )}
+            </dd>
           </div>
         ))}
       </dl>
@@ -427,20 +652,32 @@ function SessionDetail({
           {session.clientNoShowCount > 1 ? "s" : ""}.
         </p>
       )}
-      <SessionBilling session={session} />
+      <SessionBilling session={session} readOnly={locked} />
       <SessionPaperwork
-        key={paperworkVersion}
+        key={`${paperworkVersion}-${session.status}`}
         sessionId={session.id}
+        readOnly={locked}
+        aftercareExplained={session.aftercareExplained}
+        aftercareBusy={aftercareBusy}
+        onAftercareExplained={(explained) => void setAftercare(explained)}
         onOpenForm={(kind, paperwork) => setForm({ kind, paperwork })}
       />
-      <SessionProducts session={session} />
+      <SessionProducts session={session} readOnly={locked} />
       <AuditHistory key={session.id} target={{ kind: "session", id: session.id }} />
     </div>
   );
 }
 
 export default function SessionsPage() {
-  const { sessions, search, loading, error, load, get: getSession } = useSessionsStore();
+  const {
+    sessions,
+    search,
+    showArchived,
+    loading,
+    error,
+    load,
+    get: getSession,
+  } = useSessionsStore();
   const [view, setView] = useState<View>({ kind: "list" });
   const sessionIntent = useUIStore((state) => state.sessionIntent);
   const takeSessionIntent = useUIStore((state) => state.takeSessionIntent);
@@ -507,6 +744,7 @@ export default function SessionsPage() {
             .catch(() => setView({ kind: "form", session: current }));
         }}
         onBack={() => setView({ kind: "list" })}
+        onRestored={(session) => setView({ kind: "detail", session })}
       />
     );
   }
@@ -522,9 +760,17 @@ export default function SessionsPage() {
               : `${sessions.length} séance${sessions.length === 1 ? "" : "s"}`}
           </p>
         </div>
-        <button type="button" onClick={() => setView({ kind: "form" })} className={btnPrimary}>
-          Nouvelle séance
-        </button>
+        <div className="flex items-center gap-3">
+          <ArchiveFilter
+            archived={showArchived}
+            onChange={(archived) => void load(search, archived)}
+          />
+          {!showArchived && (
+            <button type="button" onClick={() => setView({ kind: "form" })} className={btnPrimary}>
+              Nouvelle séance
+            </button>
+          )}
+        </div>
       </div>
 
       <input
@@ -540,9 +786,13 @@ export default function SessionsPage() {
       {!loading && sessions.length === 0 ? (
         <div className="rounded-lg border border-line bg-surface px-5 py-10 text-center">
           <p className="text-[14px] text-fg-muted">
-            {search ? "Aucun résultat." : "Aucune séance pour le moment."}
+            {search
+              ? "Aucun résultat."
+              : showArchived
+                ? "Aucune séance archivée."
+                : "Aucune séance pour le moment."}
           </p>
-          {!search && (
+          {!search && !showArchived && (
             <button
               type="button"
               onClick={() => setView({ kind: "form" })}
@@ -569,7 +819,9 @@ export default function SessionsPage() {
                   <span className="mt-0.5 block truncate text-[12.5px] text-fg-muted">
                     {formatIsoDate(session.date)}
                     {session.startTime ? ` · ${session.startTime}` : ""}
+                    {session.title ? ` · ${session.title}` : ""}
                     {session.projectTitle ? ` · ${session.projectTitle}` : ""}
+                    {session.projectArchived ? " · projet archivé" : ""}
                     {session.bodyArea ? ` · ${session.bodyArea}` : ""}
                   </span>
                 </span>

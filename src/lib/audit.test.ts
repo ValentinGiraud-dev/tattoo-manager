@@ -87,6 +87,9 @@ describe("describeEntry", () => {
         }),
       ),
     ).toBe("Sauvegarde automatique");
+    expect(describeEntry(entry({ entity: "app", action: "DATA_RESET" }))).toBe(
+      "Données réinitialisées",
+    );
   });
 
   it("signale qu'un questionnaire modifié ne montre pas ses réponses", () => {

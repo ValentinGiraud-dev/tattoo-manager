@@ -47,6 +47,7 @@ fn session(client_id: &str, date: &str, start: Option<&str>, minutes: Option<i64
         body_area: None,
         description: None,
         notes: None,
+        title: None,
     }
 }
 
@@ -519,4 +520,157 @@ async fn a_project_with_sessions_keeps_its_client() {
         .await
         .unwrap_err();
     assert_eq!(error.to_string(), projects::PROJECT_CLIENT_LOCKED);
+}
+
+#[tokio::test]
+async fn a_session_keeps_a_title_without_a_project() {
+    let pool = db().await;
+    let mut input = session("c1", "2026-10-20", None, None);
+    input.title = Some("  Retouche  ".into());
+    let saved = sessions::create_session(&pool, input).await.unwrap();
+    assert_eq!(saved.title.as_deref(), Some("Retouche"));
+    assert!(saved.project_id.is_none());
+}
+
+#[tokio::test]
+async fn an_empty_title_is_numbered_from_the_project() {
+    let pool = db().await;
+    let tree = projects::create_project(
+        &pool,
+        ProjectInput {
+            title: "Arbre".into(),
+            ..project("c1")
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut first = session("c1", "2026-10-01", None, None);
+    first.project_id = Some(tree.id.clone());
+    let first = sessions::create_session(&pool, first).await.unwrap();
+    assert_eq!(first.title.as_deref(), Some("Arbre séance 1"));
+
+    let mut second = session("c1", "2026-11-01", None, None);
+    second.project_id = Some(tree.id.clone());
+    let second = sessions::create_session(&pool, second).await.unwrap();
+    assert_eq!(second.title.as_deref(), Some("Arbre séance 2"));
+
+    // Vider le titre d'une séance déjà liée le recalcule, sans compter la séance elle-même.
+    let mut cleared = session("c1", "2026-10-01", None, None);
+    cleared.project_id = Some(tree.id);
+    let cleared = sessions::update_session(&pool, &first.id, cleared)
+        .await
+        .unwrap();
+    assert_eq!(cleared.title.as_deref(), Some("Arbre séance 2"));
+}
+
+#[tokio::test]
+async fn a_typed_title_is_not_replaced_when_the_project_changes() {
+    let pool = db().await;
+    let tree = projects::create_project(
+        &pool,
+        ProjectInput {
+            title: "Arbre".into(),
+            ..project("c1")
+        },
+    )
+    .await
+    .unwrap();
+    let moon = projects::create_project(
+        &pool,
+        ProjectInput {
+            title: "Lune".into(),
+            ..project("c1")
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut input = session("c1", "2026-10-01", None, None);
+    input.project_id = Some(tree.id);
+    input.title = Some("Première passe".into());
+    let saved = sessions::create_session(&pool, input).await.unwrap();
+    assert_eq!(saved.title.as_deref(), Some("Première passe"));
+
+    let mut moved = session("c1", "2026-10-01", None, None);
+    moved.project_id = Some(moon.id.clone());
+    moved.title = Some("Première passe".into());
+    let moved_session = sessions::update_session(&pool, &saved.id, moved)
+        .await
+        .unwrap();
+    assert_eq!(moved_session.project_id.as_deref(), Some(moon.id.as_str()));
+    assert_eq!(moved_session.title.as_deref(), Some("Première passe"));
+
+    let mut detached = session("c1", "2026-10-01", None, None);
+    detached.title = Some("Première passe".into());
+    let detached = sessions::update_session(&pool, &saved.id, detached)
+        .await
+        .unwrap();
+    assert!(detached.project_id.is_none());
+    assert_eq!(detached.title.as_deref(), Some("Première passe"));
+}
+
+#[tokio::test]
+async fn aftercare_can_be_checked_and_cleared() {
+    let pool = db().await;
+    let session = sessions::create_session(&pool, session("c1", "2026-10-20", None, None))
+        .await
+        .unwrap();
+    assert!(!session.aftercare_explained);
+
+    let checked = sessions::set_aftercare_explained(&pool, &session.id, true)
+        .await
+        .unwrap();
+    assert!(checked.aftercare_explained);
+    let again = sessions::set_aftercare_explained(&pool, &session.id, true)
+        .await
+        .unwrap();
+    assert!(again.aftercare_explained);
+
+    let cleared = sessions::set_aftercare_explained(&pool, &session.id, false)
+        .await
+        .unwrap();
+    assert!(!cleared.aftercare_explained);
+
+    let updates: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log
+         WHERE session_id = ? AND action = 'UPDATE'
+           AND after_json LIKE '%aftercare_explained%'",
+    )
+    .bind(&session.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(updates, 2);
+}
+
+#[tokio::test]
+async fn archived_session_or_client_refuses_aftercare() {
+    let pool = db().await;
+    let archived = sessions::create_session(&pool, session("c1", "2026-10-20", None, None))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE sessions SET archived_at = '2026-10-20T00:00:00' WHERE id = ?")
+        .bind(&archived.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let error = sessions::set_aftercare_explained(&pool, &archived.id, true)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("archivée"));
+
+    let other = sessions::create_session(&pool, session("c2", "2026-10-21", None, None))
+        .await
+        .unwrap();
+    sqlx::query("UPDATE clients SET archived_at = '2026-10-20T00:00:00' WHERE id = 'c2'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let error = sessions::set_aftercare_explained(&pool, &other.id, true)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("client est archivé"));
 }

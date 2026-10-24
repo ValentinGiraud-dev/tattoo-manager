@@ -116,6 +116,7 @@ pub async fn open_unit(
             "La date d'ouverture ne peut pas être dans le futur",
         ));
     }
+    super::archive::ensure_unit_lot_open(pool, unit_id).await?;
 
     let row: Option<(String, bool, i64, Option<String>, bool)> = sqlx::query_as(
         "SELECT u.lot_id, l.single_use,
@@ -173,6 +174,7 @@ pub async fn exit_unit(
     movement_type: &str,
 ) -> Result<UnitView, LotError> {
     let movement_type = MovementType::parse(movement_type.trim())?;
+    super::archive::ensure_unit_lot_open(pool, unit_id).await?;
     if !matches!(
         movement_type,
         MovementType::Consumption

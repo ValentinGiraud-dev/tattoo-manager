@@ -224,6 +224,8 @@ function eventTitle(entry: AuditEntry): string {
       return "Sauvegarde restaurée";
     case "KEY_ROTATED":
       return "Données rechiffrées avec une nouvelle clé";
+    case "DATA_RESET":
+      return "Données réinitialisées";
     case "CSV_EXPORTED": {
       const kind = text(valueOf(entry, "kind"));
       return `Export CSV${kind && EXPORT_KINDS[kind] ? ` : ${EXPORT_KINDS[kind]}` : ""}`;

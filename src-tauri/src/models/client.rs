@@ -11,6 +11,8 @@ pub struct Client {
     pub email: Option<String>,
     pub phone: Option<String>,
     pub notes: Option<String>,
+    /// Renseigné tant que le client est archivé (lecture seule).
+    pub archived_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

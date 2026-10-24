@@ -9,7 +9,7 @@ function same(a: string, b: string): boolean {
 /** Lots sans fiche du même type, ceux du même nom que `lot` en premier. */
 export function attachCandidates(lots: LotSummary[], singleUse: boolean): LotSummary[] {
   return lots
-    .filter((lot) => lot.productId === null && lot.singleUse === singleUse)
+    .filter((lot) => lot.productId === null && lot.singleUse === singleUse && !lot.archivedAt)
     .sort(
       (a, b) =>
         a.name.localeCompare(b.name, "fr-FR", { sensitivity: "base" }) ||

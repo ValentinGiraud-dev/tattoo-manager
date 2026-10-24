@@ -167,7 +167,7 @@ async fn a_sheet_is_identified_by_name_and_brand() {
             .unwrap_err();
         assert_eq!(error.to_string(), message);
     }
-    let names: Vec<_> = product_sheets::list_sheets(&pool, None)
+    let names: Vec<_> = product_sheets::list_sheets(&pool, None, None)
         .await
         .unwrap()
         .into_iter()
@@ -206,6 +206,7 @@ async fn existing_lots_are_attached_without_touching_their_identity() {
             body_area: None,
             description: None,
             notes: None,
+            title: None,
         },
     )
     .await
@@ -244,7 +245,7 @@ async fn existing_lots_are_attached_without_touching_their_identity() {
     .await
     .unwrap_err();
     assert_eq!(error.to_string(), TYPE_MISMATCH);
-    assert!(product_sheets::list_sheets(&pool, None)
+    assert!(product_sheets::list_sheets(&pool, None, None)
         .await
         .unwrap()
         .is_empty());
@@ -429,7 +430,7 @@ async fn sheet_stock_counts_only_lots_that_are_not_expired() {
     assert_eq!((gloves.stock, gloves.expired_stock), (3, 5));
 
     // La recherche trouve une fiche par un de ses numéros de lot.
-    let found = product_sheets::list_sheets(&pool, Some("g2".into()))
+    let found = product_sheets::list_sheets(&pool, Some("g2".into()), None)
         .await
         .unwrap();
     assert_eq!(found.len(), 1);
@@ -490,7 +491,7 @@ async fn deleting_a_category_lifts_sheets_and_counts_follow() {
     categories::delete_category(&pool, &blacks).await.unwrap();
     let lifted = product_sheets::get_sheet(&pool, &created.id).await.unwrap();
     assert_eq!(lifted.category_id.as_deref(), Some(inks.as_str()));
-    let lots = lots::list_lots(&pool, None).await.unwrap();
+    let lots = lots::list_lots(&pool, None, None).await.unwrap();
     assert!(lots
         .iter()
         .all(|lot| lot.category_id.as_deref() == Some(inks.as_str())));
@@ -565,9 +566,11 @@ async fn migration_013_leaves_existing_lots_untouched() {
             .await
             .unwrap();
     assert_eq!(after, before);
-    // Les lectures actuelles utilisent aussi les colonnes de la migration suivante.
+    // Les lectures actuelles utilisent aussi les colonnes des migrations suivantes.
     run(&pool, "014_low_stock.sql").await;
-    let listed = lots::list_lots(&pool, None).await.unwrap();
+    run(&pool, "015_client_archives.sql").await;
+    run(&pool, "016_archives.sql").await;
+    let listed = lots::list_lots(&pool, None, None).await.unwrap();
     let ink = listed.iter().find(|lot| lot.id == "ink").unwrap();
     assert_eq!((ink.stock, ink.opened_count), (2, 1));
     assert_eq!(ink.category_path.as_deref(), Some("Encres"));

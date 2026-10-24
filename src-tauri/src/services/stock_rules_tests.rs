@@ -394,8 +394,18 @@ async fn migration_copies_existing_products_without_inventing_needle_stock() {
     exec_migration(&db.pool, "011_product_categories.sql").await;
     exec_migration(&db.pool, "013_product_sheets.sql").await;
     exec_migration(&db.pool, "014_low_stock.sql").await;
+    // Ce schéma s'arrête avant les acomptes : on n'applique pas 015/016 en entier.
+    // Les lectures actuelles ont seulement besoin des colonnes d'archive.
+    sqlx::query("ALTER TABLE lots ADD COLUMN archived_at TEXT")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("ALTER TABLE product_sheets ADD COLUMN archived_at TEXT")
+        .execute(&db.pool)
+        .await
+        .unwrap();
 
-    let lots = lots::list_lots(&db.pool, None).await.unwrap();
+    let lots = lots::list_lots(&db.pool, None, None).await.unwrap();
     assert_eq!(lots.len(), 2);
     let ink = lots.iter().find(|lot| lot.name == "Encre noire").unwrap();
     assert_eq!(ink.stock, 2);

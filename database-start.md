@@ -48,6 +48,7 @@ Client
 ├── email
 ├── phone
 ├── notes
+├── archived_at           vide = fiche active
 ├── created_at
 └── updated_at
 
@@ -63,6 +64,9 @@ phone	TEXT	Non	Numéro de téléphone
 notes	TEXT	Non	Notes libres
 created_at	DATETIME	Oui	Date de création
 updated_at	DATETIME	Oui	Dernière modification
+archived_at	DATETIME	Non	Renseigné : le client est archivé
+
+Une fiche (client, séance, projet, lot, fiche produit) se supprime seulement si rien ne la relie. Sinon elle s'archive : elle quitte les listes actives et les sélecteurs, et ses traces restent avec la mention « archivé ». L'archivage ne cascade pas. Archiver un client remet en stock la consommation nette de ses lots à usage unique. Archiver une séance, un projet, un lot ou une fiche ne bouge pas le stock. Le désarchivage est la seule écriture admise sur une fiche archivée. Les acomptes, paiements, liens, mouvements et documents ne s'archivent pas : ils s'annulent avec un motif.
 
 Les informations pourront être enrichies plus tard.
 
@@ -375,7 +379,7 @@ Lot (ajout)
 * Un lot reçu avec une fiche prend son nom (« Marque Nom »), son type, sa durée après ouverture, son lien et sa catégorie.
 * La migration n'ajoute que la table et la colonne : les lots existants restent sans fiche. L'écran Produits les signale et propose de créer leur fiche (avec leurs homonymes) ou d'en choisir une.
 * Rattacher un lot ne change ni son nom, ni son numéro, ni sa péremption : l'identité tracée reste celle enregistrée. Le type du lot doit être celui de la fiche.
-* Le type d'une fiche qui a des lots ne change plus. Une fiche qui a des lots ne se supprime pas.
+* Le type d'une fiche qui a des lots ne change plus. Une fiche qui a des lots ne se supprime pas : elle s'archive.
 * Stock d'une fiche : somme des lots non périmés ; le stock des lots périmés est montré à part.
 * Table nommée product_sheets pour ne pas la confondre avec l'ancienne table products (supprimée en 010).
 
@@ -444,6 +448,24 @@ Payment                  → séance ; montant, mode, date, note ; annulation mo
 * Reste à payer = prix − acomptes déduits − paiements.
 * La table sessions a été reconstruite (statut NO_SHOW) en gardant les identifiants : tous les liens existants sont conservés.
 
+Titre de séance (migration 017)
+
+Session (ajout)
+└── title    libre, optionnel
+
+* Sans projet, la séance garde le titre saisi, ou aucun.
+* Avec un projet et sans titre : « {titre du projet} séance N », N = nombre de séances déjà rattachées à ce projet + 1. Le numéro est figé à l'enregistrement.
+* Un titre déjà saisi n'est pas recalculé si le projet change ou si le lien est retiré.
+* Les séances déjà liées au moment de la migration reçoivent ce titre une fois, numérotées par date puis par création.
+
+Hygiène expliquée (migration 018)
+
+Session (ajout)
+└── aftercare_explained    0 ou 1, défaut 0
+
+* La tatoueuse coche qu'elle a expliqué les règles d'hygiène après le tatouage. Le contenu de ces règles n'est pas enregistré.
+* Les séances déjà présentes partent décochées. Une séance ou un client archivé refuse le changement.
+
 Verrous de traçabilité
 
 * Une séance qui a des produits liés ne change plus de client.
@@ -486,6 +508,7 @@ Depuis un client : ses séances, puis les lots et flacons.
 ├──────────────┤
 │ id           │
 │ client_id    │
+│ title        │
 │ date         │
 │ status       │
 │ body_area    │

@@ -26,6 +26,9 @@ export interface LotSummary {
   /** Nombre de séances où ce lot ou une de ses pièces a servi. */
   sessionCount: number;
   expired: boolean;
+  archivedAt: string | null;
+  /** La fiche produit du lot est archivée. Le lot reste utilisable. */
+  productArchived: boolean;
 }
 
 export interface CreateLotInput {
@@ -79,6 +82,7 @@ export interface ProductSheet {
   alertSource: string | null;
   /** Stock utilisable inférieur ou égal au seuil appliqué (calculé en Rust). */
   lowStock: boolean;
+  archivedAt: string | null;
 }
 
 export type LowStockMode = "EACH" | "TOTAL";
@@ -186,6 +190,8 @@ export interface LotSessionItem {
   clientLastName: string;
   quantity: number;
   voidReason: string | null;
+  clientArchived: boolean;
+  sessionArchived: boolean;
 }
 
 export interface SessionUsageItem {
@@ -210,6 +216,8 @@ export interface SessionUsageItem {
   /** Renseigné si le lien a été annulé. */
   voidReason: string | null;
   voidedAt: string | null;
+  lotArchived: boolean;
+  productArchived: boolean;
 }
 
 export interface LinkableItem {
@@ -242,6 +250,20 @@ export interface RecordMovementInput {
   reason: string | null;
 }
 
+export interface SheetRemoval {
+  sheetId: string;
+  archived: boolean;
+  canDelete: boolean;
+  lotCount: number;
+}
+
+export interface LotRemoval {
+  lotId: string;
+  archived: boolean;
+  canDelete: boolean;
+  sessionCount: number;
+}
+
 interface ProductsState {
   categories: Category[];
   categoriesError: string | null;
@@ -257,10 +279,12 @@ interface ProductsState {
   /** Fiches produit (même recherche que les lots). */
   sheets: ProductSheet[];
   search: string;
+  /** `true` : la liste ne montre que les fiches archivées. */
+  showArchived: boolean;
   loading: boolean;
   error: string | null;
   /** Charge les lots et les fiches produit. */
-  load: (search?: string) => Promise<void>;
+  load: (search?: string, archived?: boolean) => Promise<void>;
   /** Tous les lots, sans recherche (lots d'une fiche, lots à rattacher). */
   listAllLots: () => Promise<LotSummary[]>;
   /** Toutes les fiches, sans recherche (choix d'une fiche). */
@@ -270,6 +294,13 @@ interface ProductsState {
   createSheet: (input: ProductSheetInput, attachLotIds: string[]) => Promise<ProductSheet>;
   updateSheet: (id: string, input: ProductSheetInput) => Promise<ProductSheet>;
   deleteSheet: (id: string) => Promise<void>;
+  previewSheetRemoval: (id: string) => Promise<SheetRemoval>;
+  archiveSheet: (id: string) => Promise<void>;
+  restoreSheet: (id: string) => Promise<void>;
+  previewLotRemoval: (id: string) => Promise<LotRemoval>;
+  deleteLot: (id: string) => Promise<void>;
+  archiveLot: (id: string) => Promise<void>;
+  restoreLot: (id: string) => Promise<void>;
   /** Rattache un lot à une fiche, ou le détache (`null`). */
   setLotSheet: (lotId: string, sheetId: string | null) => Promise<LotSummary>;
   get: (id: string) => Promise<LotSummary>;
@@ -328,14 +359,15 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
   lots: [],
   sheets: [],
   search: "",
+  showArchived: false,
   loading: false,
   error: null,
-  load: async (search = get().search) => {
-    set({ loading: true, search });
+  load: async (search = get().search, archived = get().showArchived) => {
+    set({ loading: true, search, showArchived: archived });
     try {
       const [lots, sheets, lowStock] = await Promise.all([
-        invoke<LotSummary[]>("list_lots", { search }),
-        invoke<ProductSheet[]>("list_product_sheets", { search }),
+        invoke<LotSummary[]>("list_lots", { search, archived }),
+        invoke<ProductSheet[]>("list_product_sheets", { search, archived }),
         invoke<LowStockReport>("get_low_stock_report"),
       ]);
       set({ lots, sheets, lowStock, loading: false, error: null });
@@ -343,8 +375,9 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
       set({ loading: false, error: String(error) });
     }
   },
-  listAllLots: () => invoke<LotSummary[]>("list_lots", { search: null }),
-  listAllSheets: () => invoke<ProductSheet[]>("list_product_sheets", { search: null }),
+  listAllLots: () => invoke<LotSummary[]>("list_lots", { search: null, archived: null }),
+  listAllSheets: () =>
+    invoke<ProductSheet[]>("list_product_sheets", { search: null, archived: false }),
   getSheet: (id) => invoke<ProductSheet>("get_product_sheet", { id }),
   createSheet: async (input, attachLotIds) => {
     const sheet = await invoke<ProductSheet>("create_product_sheet", { input, attachLotIds });
@@ -359,6 +392,28 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
   deleteSheet: async (id) => {
     await invoke("delete_product_sheet", { id });
     await Promise.all([get().load(), get().loadCategories()]);
+  },
+  previewSheetRemoval: (id) => invoke<SheetRemoval>("preview_sheet_removal", { id }),
+  archiveSheet: async (id) => {
+    await invoke("archive_product_sheet", { id });
+    await Promise.all([get().load(), get().loadCategories()]);
+  },
+  restoreSheet: async (id) => {
+    await invoke("restore_product_sheet", { id });
+    await Promise.all([get().load(), get().loadCategories()]);
+  },
+  previewLotRemoval: (id) => invoke<LotRemoval>("preview_lot_removal", { id }),
+  deleteLot: async (id) => {
+    await invoke("delete_lot", { id });
+    await get().load();
+  },
+  archiveLot: async (id) => {
+    await invoke("archive_lot", { id });
+    await get().load();
+  },
+  restoreLot: async (id) => {
+    await invoke("restore_lot", { id });
+    await get().load();
   },
   setLotSheet: async (lotId, sheetId) => {
     const lot = await invoke<LotSummary>("set_lot_product_sheet", { lotId, sheetId });

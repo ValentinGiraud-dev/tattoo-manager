@@ -23,6 +23,7 @@ export interface Project {
   sessionsPriceCents: number;
   heldDepositsCents: number;
   receivedCents: number;
+  archivedAt: string | null;
 }
 
 export interface ProjectInput {
@@ -40,12 +41,24 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
   ABANDONED: "Abandonné",
 };
 
+export interface ProjectRemoval {
+  projectId: string;
+  archived: boolean;
+  canDelete: boolean;
+  sessionCount: number;
+  depositCount: number;
+}
+
 interface ProjectsState {
   listForClient: (clientId: string) => Promise<Project[]>;
   get: (id: string) => Promise<Project>;
   create: (input: ProjectInput) => Promise<Project>;
   update: (id: string, input: ProjectInput) => Promise<Project>;
   sessions: (projectId: string) => Promise<SessionListItem[]>;
+  previewRemoval: (id: string) => Promise<ProjectRemoval>;
+  remove: (id: string) => Promise<void>;
+  archive: (id: string) => Promise<void>;
+  restore: (id: string) => Promise<void>;
 }
 
 export const useProjectsStore = create<ProjectsState>(() => ({
@@ -54,4 +67,8 @@ export const useProjectsStore = create<ProjectsState>(() => ({
   create: (input) => invoke<Project>("create_project", { input }),
   update: (id, input) => invoke<Project>("update_project", { id, input }),
   sessions: (projectId) => invoke<SessionListItem[]>("list_project_sessions", { projectId }),
+  previewRemoval: (id) => invoke<ProjectRemoval>("preview_project_removal", { id }),
+  remove: (id) => invoke("delete_project", { id }),
+  archive: (id) => invoke("archive_project", { id }),
+  restore: (id) => invoke("restore_project", { id }),
 }));

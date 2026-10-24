@@ -68,21 +68,23 @@ fn normalize(input: ClientInput) -> Result<ClientInput, ClientError> {
 pub async fn list_clients(
     pool: &SqlitePool,
     search: Option<String>,
+    archived: bool,
 ) -> Result<Vec<Client>, ClientError> {
     let pattern = like_pattern(search);
 
     let clients = sqlx::query_as::<_, Client>(
         "SELECT * FROM clients
-         WHERE ?1 IS NULL
+         WHERE (archived_at IS NOT NULL) = ?2 AND (?1 IS NULL
             OR first_name LIKE ?1 ESCAPE '\\'
             OR last_name LIKE ?1 ESCAPE '\\'
             OR first_name || ' ' || last_name LIKE ?1 ESCAPE '\\'
             OR last_name || ' ' || first_name LIKE ?1 ESCAPE '\\'
             OR email LIKE ?1 ESCAPE '\\'
-            OR phone LIKE ?1 ESCAPE '\\'
+            OR phone LIKE ?1 ESCAPE '\\')
          ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE",
     )
     .bind(pattern)
+    .bind(archived)
     .fetch_all(pool)
     .await?;
     Ok(clients)
@@ -118,12 +120,63 @@ pub async fn create_client(pool: &SqlitePool, input: ClientInput) -> Result<Clie
     Ok(client)
 }
 
+/// Supprime un client sans historique. Un client lié à des séances, des projets
+/// ou des acomptes est refusé : la traçabilité doit rester complète.
+pub async fn delete_client(pool: &SqlitePool, id: &str) -> Result<(), ClientError> {
+    let mut tx = pool.begin().await?;
+    let linked: i64 = sqlx::query_scalar(
+        "SELECT (SELECT COUNT(*) FROM sessions WHERE client_id = ?1)
+              + (SELECT COUNT(*) FROM projects WHERE client_id = ?1)
+              + (SELECT COUNT(*) FROM deposits WHERE client_id = ?1)",
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if linked > 0 {
+        return Err(ClientError::Invalid(
+            "Ce client a des séances, projets ou acomptes enregistrés : il ne peut pas être supprimé. Archive-le pour le retirer des listes.",
+        ));
+    }
+    // Un archivage puis un désarchivage laissent des lignes qui référencent le client.
+    sqlx::query(
+        "DELETE FROM client_archive_movements
+         WHERE archive_id IN (SELECT id FROM client_archives WHERE client_id = ?)",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM client_archives WHERE client_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    let result = sqlx::query("DELETE FROM clients WHERE id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    if result.rows_affected() == 0 {
+        return Err(ClientError::NotFound);
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn update_client(
     pool: &SqlitePool,
     id: &str,
     input: ClientInput,
 ) -> Result<Client, ClientError> {
     let input = normalize(input)?;
+    let archived: Option<String> =
+        sqlx::query_scalar("SELECT archived_at FROM clients WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
+    if archived.is_some() {
+        return Err(ClientError::Invalid(
+            "Ce client est archivé : désarchivez-le pour le modifier",
+        ));
+    }
     let sql = format!(
         "UPDATE clients
          SET first_name = ?, last_name = ?, birth_date = ?, address = ?, email = ?, phone = ?,

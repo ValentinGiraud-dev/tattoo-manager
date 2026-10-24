@@ -35,6 +35,7 @@ pub struct DaySession {
     pub client_first_name: String,
     pub client_last_name: String,
     pub project_title: Option<String>,
+    pub title: Option<String>,
     pub date: String,
     pub start_time: Option<String>,
     pub duration_minutes: Option<i64>,
@@ -79,6 +80,7 @@ fn day_session_select() -> String {
             s.id, s.client_id,
             c.first_name AS client_first_name, c.last_name AS client_last_name,
             p.title AS project_title,
+            s.title,
             s.date, s.start_time, s.duration_minutes, s.status, s.body_area, s.price_cents,
             {paid} AS paid_cents,
             EXISTS (SELECT 1 FROM session_forms f
@@ -92,7 +94,7 @@ fn day_session_select() -> String {
                     WHERE d.session_id = s.id AND d.kind = 'CONSENT_SIGNED'
                       AND d.voided_at IS NULL) AS consent_signed
          FROM sessions s
-         INNER JOIN clients c ON c.id = s.client_id
+         INNER JOIN clients c ON c.id = s.client_id AND c.archived_at IS NULL
          LEFT JOIN projects p ON p.id = s.project_id",
         paid = billing::SESSION_PAID_SQL
     )
@@ -136,12 +138,12 @@ async fn stock_items(pool: &SqlitePool, today: NaiveDate) -> Result<Vec<Expiring
                 (SELECT COALESCE(SUM(m.quantity), 0) FROM stock_movements m
                   WHERE m.lot_id = l.id AND m.unit_id IS NULL) AS count
          FROM lots l
-         WHERE l.single_use = 1
+         WHERE l.single_use = 1 AND l.archived_at IS NULL
          UNION ALL
          SELECT l.id, l.name, l.lot_number, l.expiration_date, l.after_opening_months,
                 u.opened_at, 0, COUNT(*)
          FROM units u
-         INNER JOIN lots l ON l.id = u.lot_id
+         INNER JOIN lots l ON l.id = u.lot_id AND l.archived_at IS NULL
          WHERE (SELECT COALESCE(SUM(m.quantity), 0) FROM stock_movements m
                  WHERE m.unit_id = u.id) > 0
          GROUP BY l.id, u.opened_at",
@@ -270,7 +272,10 @@ async fn sessions_where(
     condition: &str,
     binds: &[String],
 ) -> Result<Vec<DaySessionView>, LotError> {
-    let sql = format!("{} WHERE {condition} {CHRONO}", day_session_select());
+    let sql = format!(
+        "{} WHERE {condition} AND s.archived_at IS NULL {CHRONO}",
+        day_session_select()
+    );
     let mut query = sqlx::query_as::<_, DaySession>(&sql);
     for value in binds {
         query = query.bind(value);
@@ -339,7 +344,7 @@ pub async fn get_dashboard(pool: &SqlitePool, today: NaiveDate) -> Result<Dashbo
                 s.date AS session_date, s.status AS session_status, d.amount_cents
          FROM deposits d
          INNER JOIN sessions s ON s.id = d.session_id
-         INNER JOIN clients c ON c.id = d.client_id
+         INNER JOIN clients c ON c.id = d.client_id AND c.archived_at IS NULL
          WHERE d.voided_at IS NULL
            AND NOT EXISTS (SELECT 1 FROM deposit_outcomes o
                            WHERE o.deposit_id = d.id AND o.voided_at IS NULL)

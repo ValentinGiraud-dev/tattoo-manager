@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ArchiveBanner } from "../../components/archive-controls";
 import { BackButton } from "../../components/back-button";
 import { btnGhost, btnPrimary, cardClass } from "../../components/styles";
 import { useConfirm } from "../../components/use-confirm";
@@ -19,6 +20,7 @@ export function SheetDetail({
   onEdit,
   onReceive,
   onOpenLot,
+  onChanged,
 }: {
   sheet: ProductSheet;
   /** Ouverte depuis un lot de Produits : le retour y ramène (sinon, retour d'écran). */
@@ -27,15 +29,34 @@ export function SheetDetail({
   onEdit: () => void;
   onReceive: () => void;
   onOpenLot: (lot: LotSummary) => void;
+  onChanged: (sheet: ProductSheet) => void;
 }) {
-  const { listAllLots, deleteSheet } = useProductsStore();
+  const { listAllLots, deleteSheet, previewSheetRemoval, archiveSheet, restoreSheet, getSheet } =
+    useProductsStore();
   const confirm = useConfirm();
   // La liste est relue quand la fiche change (réception, rattachement…).
   const key = `${sheet.id}:${sheet.updatedAt}:${sheet.lotCount}:${sheet.stock}`;
   const [loaded, setLoaded] = useState<Loaded>({ key: "", lots: null, error: null });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [action, setAction] = useState<"delete" | "archive" | null>(null);
   const lots = loaded.key === key ? loaded.lots : null;
+  const archived = sheet.archivedAt !== null;
+
+  useEffect(() => {
+    if (archived) return;
+    let cancelled = false;
+    previewSheetRemoval(sheet.id)
+      .then((preview) => {
+        if (!cancelled) setAction(preview.canDelete ? "delete" : "archive");
+      })
+      .catch(() => {
+        if (!cancelled) setAction(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [archived, previewSheetRemoval, sheet.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,22 +74,70 @@ export function SheetDetail({
     };
   }, [key, sheet.id, listAllLots]);
 
-  async function remove() {
+  async function removeOrArchive() {
+    let preview;
+    try {
+      preview = await previewSheetRemoval(sheet.id);
+    } catch (previewError) {
+      setError(String(previewError));
+      return;
+    }
+    if (preview.canDelete) {
+      const ok = await confirm({
+        title: `Supprimer la fiche « ${sheet.displayName} » ?`,
+        body: "Elle n'a aucun lot : rien d'autre ne change. Cette action est irréversible.",
+        confirmLabel: "Supprimer la fiche",
+        tone: "danger",
+      });
+      if (!ok) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await deleteSheet(sheet.id);
+        toast.success("Fiche produit supprimée");
+        onBack();
+      } catch (deleteError) {
+        setError(String(deleteError));
+        setBusy(false);
+      }
+      return;
+    }
     const ok = await confirm({
-      title: `Supprimer la fiche « ${sheet.displayName} » ?`,
-      body: "Elle n'a aucun lot : rien d'autre ne change.",
-      confirmLabel: "Supprimer la fiche",
+      title: `Archiver la fiche « ${sheet.displayName} » ?`,
+      details: [`${preview.lotCount} lot${preview.lotCount > 1 ? "s" : ""}`],
+      body: "Elle quitte le sélecteur. Ses lots restent utilisables et affichent « fiche archivée ».",
+      confirmLabel: "Archiver la fiche",
       tone: "danger",
     });
     if (!ok) return;
     setBusy(true);
     setError(null);
     try {
-      await deleteSheet(sheet.id);
-      toast.success("Fiche produit supprimée");
+      await archiveSheet(sheet.id);
+      toast.success("Fiche produit archivée");
       onBack();
-    } catch (deleteError) {
-      setError(String(deleteError));
+    } catch (archiveError) {
+      setError(String(archiveError));
+      setBusy(false);
+    }
+  }
+
+  async function unarchive() {
+    const ok = await confirm({
+      title: "Désarchiver cette fiche ?",
+      body: "Elle revient dans le sélecteur des nouveaux lots.",
+      confirmLabel: "Désarchiver",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await restoreSheet(sheet.id);
+      toast.success("Fiche produit désarchivée");
+      onChanged(await getSheet(sheet.id));
+    } catch (restoreError) {
+      setError(String(restoreError));
+    } finally {
       setBusy(false);
     }
   }
@@ -96,6 +165,12 @@ export function SheetDetail({
       ) : (
         <BackButton listLabel="Produits" onList={onBack} />
       )}
+      {archived && (
+        <ArchiveBanner>
+          Fiche archivée. Elle est en lecture seule et absente du sélecteur. Désarchive-la pour la
+          modifier. Ses lots restent utilisables.
+        </ArchiveBanner>
+      )}
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
           <p className="mb-1 text-[12px] text-fg-faint">Fiche produit</p>
@@ -103,12 +178,35 @@ export function SheetDetail({
           <p className="mt-1 text-[13px] text-fg-muted">{sheetSummary(sheet)}</p>
         </div>
         <div className="flex shrink-0 gap-2">
-          <button type="button" onClick={onEdit} className={btnGhost}>
-            Modifier
-          </button>
-          <button type="button" onClick={onReceive} className={btnPrimary}>
-            Recevoir un lot
-          </button>
+          {archived ? (
+            <button
+              type="button"
+              onClick={() => void unarchive()}
+              disabled={busy}
+              className={btnPrimary}
+            >
+              {busy ? "Désarchivage…" : "Désarchiver"}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => void removeOrArchive()}
+                disabled={busy}
+                className={btnGhost}
+              >
+                <span className="text-danger">
+                  {busy ? "En cours…" : action === "delete" ? "Supprimer" : "Archiver"}
+                </span>
+              </button>
+              <button type="button" onClick={onEdit} className={btnGhost}>
+                Modifier
+              </button>
+              <button type="button" onClick={onReceive} className={btnPrimary}>
+                Recevoir un lot
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -144,9 +242,11 @@ export function SheetDetail({
         ) : lots.length === 0 ? (
           <div className={`${cardClass} px-5 py-6 text-center`}>
             <p className="text-[13.5px] text-fg-muted">Aucun lot reçu pour cette fiche.</p>
-            <button type="button" onClick={onReceive} className={`${btnGhost} mt-3`}>
-              Recevoir un lot
-            </button>
+            {!archived && (
+              <button type="button" onClick={onReceive} className={`${btnGhost} mt-3`}>
+                Recevoir un lot
+              </button>
+            )}
           </div>
         ) : (
           <ul className={`${cardClass} divide-y divide-line overflow-hidden`}>
@@ -154,6 +254,7 @@ export function SheetDetail({
               <li key={lot.id}>
                 <LotRow lot={lot} title={`Lot ${lot.lotNumber}`} onOpen={() => onOpenLot(lot)}>
                   exp. {formatIsoDate(lot.expirationDate)}
+                  {lot.archivedAt ? " · lot archivé" : ""}
                 </LotRow>
               </li>
             ))}
@@ -165,17 +266,6 @@ export function SheetDetail({
         <p role="alert" className="text-[13px] text-danger">
           {error}
         </p>
-      )}
-
-      {sheet.lotCount === 0 && (
-        <button
-          type="button"
-          onClick={() => void remove()}
-          disabled={busy}
-          className="self-start rounded-sm px-2 py-1 text-[12.5px] text-danger hover:bg-surface-2"
-        >
-          Supprimer la fiche…
-        </button>
       )}
     </div>
   );

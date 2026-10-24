@@ -70,6 +70,7 @@ async fn session(
             body_area: Some("Avant-bras".into()),
             description: None,
             notes: None,
+            title: None,
         },
     )
     .await

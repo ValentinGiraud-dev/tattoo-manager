@@ -53,6 +53,7 @@ async fn session_for(pool: &SqlitePool, client_id: &str) -> String {
             body_area: None,
             description: None,
             notes: None,
+            title: None,
         },
     )
     .await
@@ -428,7 +429,7 @@ async fn audit_triggers_cover_every_column() {
     let tables: Vec<String> = sqlx::query_scalar(
         "SELECT name FROM sqlite_master
          WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
-           AND name NOT IN ('_sqlx_migrations', 'audit_log')
+           AND name NOT IN ('_sqlx_migrations', 'audit_log', 'schema_flags')
          ORDER BY name",
     )
     .fetch_all(&pool)

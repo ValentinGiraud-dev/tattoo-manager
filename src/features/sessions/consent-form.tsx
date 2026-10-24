@@ -60,14 +60,17 @@ const emptyToNull = (value: string) => (value.trim() === "" ? null : value);
 export function ConsentFormView({
   paperwork,
   onDone,
+  readOnly = false,
 }: {
   paperwork: Paperwork;
   onDone: (next?: Paperwork) => void;
+  readOnly?: boolean;
 }) {
   const { saveConsent, print } = usePaperworkStore();
   const confirm = useConfirm();
   const guardedLeave = useGuardedLeave();
   const signed = paperwork.consentSigned;
+  const frozen = signed || readOnly;
   const [answers, setAnswers] = useState<ConsentAnswers>(
     paperwork.consent?.answers ?? emptyConsentAnswers(),
   );
@@ -103,7 +106,7 @@ export function ConsentFormView({
             </h2>
             <p className="mt-1 text-[13px] text-fg-muted">{intro}</p>
           </div>
-          {!signed && items.length > 1 && (
+          {!frozen && items.length > 1 && (
             <button
               type="button"
               onClick={() => items.forEach(([key]) => setBox(key, !allChecked))}
@@ -113,7 +116,7 @@ export function ConsentFormView({
             </button>
           )}
         </div>
-        <fieldset disabled={signed} className="flex flex-col gap-2">
+        <fieldset disabled={frozen} className="flex flex-col gap-2">
           <legend className="sr-only">{title}</legend>
           {items.map(([key, label]) => (
             <label key={key} className="flex items-start gap-2.5 text-[13.5px] text-fg">
@@ -232,7 +235,7 @@ export function ConsentFormView({
           </p>
         )}
         {minor !== false && (
-          <fieldset disabled={signed} className="flex flex-col gap-3">
+          <fieldset disabled={frozen} className="flex flex-col gap-3">
             <legend className="sr-only">Représentant légal</legend>
             <div role="radiogroup" aria-label="Lien avec le mineur" className="flex gap-2">
               {RELATIONS.map(([relation, label]) => {
@@ -280,7 +283,7 @@ export function ConsentFormView({
 
       {error && <p className="text-[13px] text-danger">{error}</p>}
 
-      {!signed && (
+      {!frozen && (
         <div className="sticky bottom-0 -mx-8 flex items-center gap-3 border-t border-line bg-bg/95 px-8 py-3 backdrop-blur">
           <button type="submit" disabled={saving} className={btnPrimary}>
             {saving ? "Enregistrement…" : "Enregistrer"}

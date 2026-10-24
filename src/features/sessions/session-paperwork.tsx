@@ -80,9 +80,17 @@ function formState(
 export function SessionPaperwork({
   sessionId,
   onOpenForm,
+  aftercareExplained,
+  onAftercareExplained,
+  aftercareBusy = false,
+  readOnly = false,
 }: {
   sessionId: string;
   onOpenForm: (kind: FormKind, paperwork: Paperwork) => void;
+  aftercareExplained: boolean;
+  onAftercareExplained: (explained: boolean) => void;
+  aftercareBusy?: boolean;
+  readOnly?: boolean;
 }) {
   const store = usePaperworkStore();
   const confirm = useConfirm();
@@ -208,14 +216,16 @@ export function SessionPaperwork({
         <Badge tone={state.tone}>{state.label}</Badge>
       </div>
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onOpenForm(kind, paperwork)}
-          className={exists ? btnGhost : btnPrimary}
-        >
-          {signed ? "Voir les réponses" : exists ? "Modifier" : "Remplir"}
-        </button>
+        {(exists || !readOnly) && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onOpenForm(kind, paperwork)}
+            className={exists || readOnly ? btnGhost : btnPrimary}
+          >
+            {signed || readOnly ? "Voir les réponses" : exists ? "Modifier" : "Remplir"}
+          </button>
+        )}
         <button
           type="button"
           disabled={busy}
@@ -224,7 +234,7 @@ export function SessionPaperwork({
         >
           Imprimer
         </button>
-        {!signed && (
+        {!signed && !readOnly && (
           <button
             type="button"
             disabled={busy}
@@ -246,6 +256,16 @@ export function SessionPaperwork({
           Remplis avec le client, imprime, fais signer, puis joins le scan ou une photo.
         </p>
       </div>
+      <label className="flex items-start gap-2.5 text-[13.5px] text-fg">
+        <input
+          type="checkbox"
+          checked={aftercareExplained}
+          disabled={readOnly || busy || aftercareBusy}
+          onChange={(event) => onAftercareExplained(event.target.checked)}
+          className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
+        />
+        J’ai expliqué les règles d’hygiène après le tatouage.
+      </label>
 
       {paperwork.clientMinor === true && (
         <Alert tone="warning">
@@ -302,14 +322,16 @@ export function SessionPaperwork({
 
       <div className="mt-2 flex items-center justify-between gap-3">
         <h3 className="text-[13px] font-medium text-fg-muted">Fichiers joints</h3>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void attach("OTHER")}
-          className={btnGhost}
-        >
-          Joindre un autre document
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void attach("OTHER")}
+            className={btnGhost}
+          >
+            Joindre un autre document
+          </button>
+        )}
       </div>
       {paperwork.documents.length === 0 ? (
         <p className={`${cardClass} px-4 py-5 text-center text-[13px] text-fg-muted`}>
@@ -346,7 +368,7 @@ export function SessionPaperwork({
                 >
                   Ouvrir
                 </button>
-                {!document.voidReason && (
+                {!readOnly && !document.voidReason && (
                   <button
                     type="button"
                     disabled={busy}

@@ -18,6 +18,7 @@ pub struct Session {
     pub id: String,
     pub client_id: String,
     pub project_id: Option<String>,
+    pub title: Option<String>,
     pub date: String,
     pub start_time: Option<String>,
     pub duration_minutes: Option<i64>,

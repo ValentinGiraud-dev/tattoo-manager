@@ -3,6 +3,7 @@ use sqlx::{Sqlite, Transaction};
 
 use crate::models::StockMovement;
 
+use super::archive::{CLIENT_LOCKED, LOT_LOCKED, SESSION_LOCKED};
 use super::error::LotError;
 use super::sql::NOW;
 
@@ -78,13 +79,37 @@ pub(crate) async fn apply_movement(
     tx: &mut Transaction<'_, Sqlite>,
     draft: MovementDraft,
 ) -> Result<(), LotError> {
-    let single_use: Option<bool> = sqlx::query_scalar("SELECT single_use FROM lots WHERE id = ?")
-        .bind(&draft.lot_id)
-        .fetch_optional(&mut **tx)
-        .await?;
-    let Some(single_use) = single_use else {
+    let row: Option<(bool, Option<String>)> =
+        sqlx::query_as("SELECT single_use, archived_at FROM lots WHERE id = ?")
+            .bind(&draft.lot_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    let Some((single_use, archived_at)) = row else {
         return Err(LotError::Invalid("Le lot est introuvable"));
     };
+    if archived_at.is_some() {
+        let bypass: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM schema_flags WHERE name = 'lot_movement' LIMIT 1")
+                .fetch_optional(&mut **tx)
+                .await?;
+        if bypass.is_none() {
+            return Err(LotError::Invalid(LOT_LOCKED));
+        }
+    }
+    if let Some(session_id) = &draft.session_id {
+        let session: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT s.archived_at, c.archived_at
+             FROM sessions s JOIN clients c ON c.id = s.client_id WHERE s.id = ?",
+        )
+        .bind(session_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        match session {
+            Some((Some(_), _)) => return Err(LotError::Invalid(SESSION_LOCKED)),
+            Some((_, Some(_))) => return Err(LotError::Invalid(CLIENT_LOCKED)),
+            _ => {}
+        }
+    }
 
     if draft.movement_type == MovementType::Adjustment {
         let reason = draft.reason.as_deref().map(str::trim).unwrap_or("");
@@ -264,6 +289,18 @@ pub async fn undo_movement(pool: &sqlx::SqlitePool, movement_id: &str) -> Result
                 "Ce mouvement appartient à un lien de séance annulé : il ne peut plus être défait",
             ));
         }
+    }
+    let archived: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM client_archive_movements
+         WHERE movement_id = ?1 OR restore_movement_id = ?1 LIMIT 1",
+    )
+    .bind(&movement.id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if archived.is_some() {
+        return Err(LotError::Invalid(
+            "Ce mouvement vient de l'archivage d'un client : désarchivez le client pour le défaire",
+        ));
     }
     apply_movement(
         &mut tx,

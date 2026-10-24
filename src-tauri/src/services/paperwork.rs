@@ -610,6 +610,7 @@ pub async fn save_health(
     answers: HealthAnswers,
 ) -> Result<Paperwork, LotError> {
     session_context(pool, session_id).await?;
+    super::archive::ensure_session_open(pool, session_id).await?;
     if signed(pool, session_id, DocumentKind::HealthSigned).await? {
         return Err(LotError::Invalid(HEALTH_LOCKED));
     }
@@ -626,6 +627,7 @@ pub async fn save_consent(
     answers: ConsentAnswers,
 ) -> Result<Paperwork, LotError> {
     session_context(pool, session_id).await?;
+    super::archive::ensure_session_open(pool, session_id).await?;
     if signed(pool, session_id, DocumentKind::ConsentSigned).await? {
         return Err(LotError::Invalid(CONSENT_LOCKED));
     }
@@ -664,6 +666,7 @@ pub async fn attach_document(
     source: &Path,
 ) -> Result<SessionDocument, LotError> {
     session_context(pool, session_id).await?;
+    super::archive::ensure_session_open(pool, session_id).await?;
     let extension = source
         .extension()
         .and_then(|ext| ext.to_str())
@@ -814,6 +817,7 @@ pub async fn void_document(
         return Err(LotError::Invalid("Le motif d'annulation est obligatoire"));
     }
     let document = get_document(pool, id).await?;
+    super::archive::ensure_session_open(pool, &document.session_id).await?;
     if document.voided_at.is_some() {
         return Err(LotError::Invalid("Ce document est déjà annulé"));
     }

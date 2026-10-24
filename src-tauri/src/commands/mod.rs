@@ -15,6 +15,7 @@ use crate::services::billing::{
     self, DepositInput, DepositView, PaymentInput, PaymentView, SessionBilling, SettleDepositInput,
 };
 use crate::services::categories::{self, CategoryInput, CategoryView, LowStockSetting};
+use crate::services::client_archive;
 use crate::services::clients::{self, ClientInput};
 use crate::services::dashboard::{self, Dashboard, PeriodSummary};
 use crate::services::exports::{self, ExportKind};
@@ -44,8 +45,33 @@ pub async fn database_status(db: State<'_, Db>) -> Result<i64, String> {
 pub async fn list_clients(
     db: State<'_, Db>,
     search: Option<String>,
+    archived: Option<bool>,
 ) -> Result<Vec<Client>, String> {
-    clients::list_clients(&db.pool()?, search)
+    clients::list_clients(&db.pool()?, search, archived.unwrap_or(false))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn preview_client_archive(
+    db: State<'_, Db>,
+    id: String,
+) -> Result<client_archive::ArchivePreview, String> {
+    client_archive::archive_preview(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn archive_client(db: State<'_, Db>, id: String) -> Result<(), String> {
+    client_archive::archive_client(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn restore_client(db: State<'_, Db>, id: String) -> Result<(), String> {
+    client_archive::restore_client(&db.pool()?, &id)
         .await
         .map_err(|error| error.to_string())
 }
@@ -76,11 +102,81 @@ pub async fn update_client(
 }
 
 #[tauri::command]
+pub async fn delete_client(db: State<'_, Db>, id: String) -> Result<(), String> {
+    clients::delete_client(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn preview_session_removal(
+    db: State<'_, Db>,
+    id: String,
+) -> Result<sessions::SessionRemoval, String> {
+    sessions::removal_preview(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_session(db: State<'_, Db>, id: String) -> Result<(), String> {
+    sessions::delete_session(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn archive_session(db: State<'_, Db>, id: String) -> Result<(), String> {
+    sessions::archive_session(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn restore_session(db: State<'_, Db>, id: String) -> Result<(), String> {
+    sessions::restore_session(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn preview_project_removal(
+    db: State<'_, Db>,
+    id: String,
+) -> Result<projects::ProjectRemoval, String> {
+    projects::removal_preview(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_project(db: State<'_, Db>, id: String) -> Result<(), String> {
+    projects::delete_project(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn archive_project(db: State<'_, Db>, id: String) -> Result<(), String> {
+    projects::archive_project(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn restore_project(db: State<'_, Db>, id: String) -> Result<(), String> {
+    projects::restore_project(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn list_sessions(
     db: State<'_, Db>,
     search: Option<String>,
+    archived: Option<bool>,
 ) -> Result<Vec<SessionListItem>, String> {
-    sessions::list_sessions(&db.pool()?, search)
+    sessions::list_sessions(&db.pool()?, search, archived.unwrap_or(false))
         .await
         .map_err(|error| error.to_string())
 }
@@ -114,11 +210,23 @@ pub async fn update_session(
 }
 
 #[tauri::command]
+pub async fn set_aftercare_explained(
+    db: State<'_, Db>,
+    id: String,
+    explained: bool,
+) -> Result<SessionListItem, String> {
+    sessions::set_aftercare_explained(&db.pool()?, &id, explained)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn list_lots(
     db: State<'_, Db>,
     search: Option<String>,
+    archived: Option<bool>,
 ) -> Result<Vec<LotSummary>, String> {
-    lots::list_lots(&db.pool()?, search)
+    lots::list_lots(&db.pool()?, search, archived)
         .await
         .map_err(|error| error.to_string())
 }
@@ -155,6 +263,37 @@ pub async fn update_lot(
     input: UpdateLotInput,
 ) -> Result<LotSummary, String> {
     lots::update_lot(&db.pool()?, &id, input)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn preview_lot_removal(
+    db: State<'_, Db>,
+    id: String,
+) -> Result<lots::LotRemoval, String> {
+    lots::removal_preview(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_lot(db: State<'_, Db>, id: String) -> Result<(), String> {
+    lots::delete_lot(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn archive_lot(db: State<'_, Db>, id: String) -> Result<(), String> {
+    lots::archive_lot(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn restore_lot(db: State<'_, Db>, id: String) -> Result<(), String> {
+    lots::restore_lot(&db.pool()?, &id)
         .await
         .map_err(|error| error.to_string())
 }
@@ -618,8 +757,9 @@ pub async fn delete_category(db: State<'_, Db>, id: String) -> Result<(), String
 pub async fn list_product_sheets(
     db: State<'_, Db>,
     search: Option<String>,
+    archived: Option<bool>,
 ) -> Result<Vec<ProductSheetView>, String> {
-    product_sheets::list_sheets(&db.pool()?, search)
+    product_sheets::list_sheets(&db.pool()?, search, archived)
         .await
         .map_err(|error| error.to_string())
 }
@@ -657,6 +797,30 @@ pub async fn update_product_sheet(
 #[tauri::command]
 pub async fn delete_product_sheet(db: State<'_, Db>, id: String) -> Result<(), String> {
     product_sheets::delete_sheet(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn preview_sheet_removal(
+    db: State<'_, Db>,
+    id: String,
+) -> Result<product_sheets::SheetRemoval, String> {
+    product_sheets::removal_preview(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn archive_product_sheet(db: State<'_, Db>, id: String) -> Result<(), String> {
+    product_sheets::archive_sheet(&db.pool()?, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn restore_product_sheet(db: State<'_, Db>, id: String) -> Result<(), String> {
+    product_sheets::restore_sheet(&db.pool()?, &id)
         .await
         .map_err(|error| error.to_string())
 }

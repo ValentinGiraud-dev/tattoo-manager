@@ -76,8 +76,8 @@ function SessionRow({ session, showDate = false }: { session: DaySession; showDa
           </span>
         </span>
         <span className="text-[12.5px] text-fg-muted">
-          {[session.projectTitle, session.bodyArea].filter(Boolean).join(" · ") ||
-            "Pas de projet ni de zone"}
+          {[session.title, session.projectTitle, session.bodyArea].filter(Boolean).join(" · ") ||
+            "Pas de titre ni de zone"}
           {session.status !== "PLANNED" && ` · ${SESSION_STATUS_LABELS[session.status]}`}
         </span>
         {active && (
