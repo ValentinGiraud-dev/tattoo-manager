@@ -14,8 +14,9 @@
  * Cargo.toml → build universel signé (pnpm dist:mac) → latest.json →
  * release GitHub. Rien n'est commité ni poussé.
  *
- * Clé privée : TAURI_SIGNING_PRIVATE_KEY (contenu ou chemin).
- * Mot de passe : TAURI_SIGNING_PRIVATE_KEY_PASSWORD, sinon le Trousseau
+ * Clé privée : TAURI_SIGNING_PRIVATE_KEY (contenu ou chemin), sinon
+ * ~/.tauri/tracink.key. Mot de passe : TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
+ * sinon ~/.tauri/tracink-password.txt pour cette clé, sinon le Trousseau
  * (security add-generic-password -s com.tracink.updater -a tracink -w),
  * sinon une saisie masquée.
  */
@@ -43,6 +44,8 @@ const PKG = join(ROOT, "package.json");
 const BUNDLE = join(ROOT, "src-tauri/target/universal-apple-darwin/release/bundle");
 const OUT = join(BUNDLE, "release");
 const KEYCHAIN_SERVICE = "com.tracink.updater";
+const DEFAULT_KEY = join(homedir(), ".tauri/tracink.key");
+const DEFAULT_PASSWORD = join(homedir(), ".tauri/tracink-password.txt");
 const SEMVER = /^\d+\.\d+\.\d+$/;
 
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
@@ -100,7 +103,10 @@ const publishOnly = flag("publish-only");
 function signingKey() {
   const raw = process.env.TAURI_SIGNING_PRIVATE_KEY?.trim();
   if (!raw) {
-    fail("TAURI_SIGNING_PRIVATE_KEY est absente (contenu de la clé, ou chemin vers le fichier).");
+    if (existsSync(DEFAULT_KEY)) return DEFAULT_KEY;
+    fail(
+      'TAURI_SIGNING_PRIVATE_KEY est absente. Le Trousseau ne garde que le mot de passe de la clé. Indique le fichier : export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/tracink.key"',
+    );
   }
   const path = raw.startsWith("~") ? join(homedir(), raw.slice(1)) : raw;
   const looksLikePath =
@@ -110,9 +116,12 @@ function signingKey() {
   return looksLikePath ? path : raw;
 }
 
-function signingPassword() {
+function signingPassword(key) {
   if (process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD !== undefined) {
     return process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+  }
+  if (key === DEFAULT_KEY && existsSync(DEFAULT_PASSWORD)) {
+    return readFileSync(DEFAULT_PASSWORD, "utf8").replace(/\n$/, "");
   }
   const found = succeed("security", [
     "find-generic-password",
@@ -254,7 +263,7 @@ if (publishOnly) {
   const notes = releaseNotes(subjects);
 
   const key = signingKey();
-  const password = signingPassword();
+  const password = signingPassword(key);
   const cargoText = readFileSync(CARGO, "utf8");
   const confText = readFileSync(CONF, "utf8");
   const lockText = readFileSync(CARGO_LOCK, "utf8");

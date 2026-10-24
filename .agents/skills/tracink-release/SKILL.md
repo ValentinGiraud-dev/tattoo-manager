@@ -22,7 +22,7 @@ Options : `--skip-check`, `--allow-dirty`, `--draft`, `--publish-only` (republie
 
 ## Déroulement
 
-1. Clé publique déjà dans `src-tauri/tauri.conf.json`. Clé privée : `TAURI_SIGNING_PRIVATE_KEY` (contenu ou chemin). Mot de passe : `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, sinon le Trousseau (`com.tracink.updater`, compte `tracink`), sinon une saisie masquée. `gh` connecté. Le dépôt est celui de l'endpoint updater.
+1. Clé publique déjà dans `src-tauri/tauri.conf.json`. Clé privée : `TAURI_SIGNING_PRIVATE_KEY` (contenu ou chemin), sinon `~/.tauri/tracink.key`. Mot de passe : `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, sinon `~/.tauri/tracink-password.txt` pour cette clé, sinon le Trousseau (`com.tracink.updater`, compte `tracink`), sinon une saisie masquée. `gh` connecté. Le dépôt est celui de l'endpoint updater.
 2. Arbre git propre, sauf `--allow-dirty`. `--publish-only` saute aussi cette vérification.
 3. Sauf `--skip-check` (et jamais pour `--publish-only`) : `pnpm check`, puis dans `src-tauri` `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` et `cargo test`. Pas de Playwright : la CI le fait, et le build universel est long.
 4. Même numéro dans `package.json`, `src-tauri/tauri.conf.json` et `src-tauri/Cargo.toml`, puis `cargo check` pour `Cargo.lock`. Si le build échoue, ces quatre fichiers reviennent à l'ancienne version.
