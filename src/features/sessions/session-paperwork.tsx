@@ -1,6 +1,6 @@
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState, type ReactNode } from "react";
-import { btnGhost, btnPrimary, cardClass } from "../../components/styles";
+import { cardClass } from "../../components/styles";
 import { useConfirm } from "../../components/use-confirm";
 import { formatTimestamp } from "../../lib/format";
 import {
@@ -27,18 +27,116 @@ function formatSize(bytes: number) {
 
 type Tone = "neutral" | "warning" | "success";
 
-function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
+function StatusText({ tone, children }: { tone: Tone; children: ReactNode }) {
   const tones: Record<Tone, string> = {
-    neutral: "bg-surface-3 text-fg-muted",
-    warning: "bg-warning/15 text-warning",
-    success: "bg-success/15 text-success",
+    neutral: "text-fg-faint",
+    warning: "text-warning",
+    success: "text-success",
   };
+  return <span className={`text-[13px] ${tones[tone]}`}>{children}</span>;
+}
+
+function IconButton({
+  label,
+  disabled,
+  onClick,
+  tone = "muted",
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  tone?: "muted" | "danger";
+  children: ReactNode;
+}) {
   return (
-    <span
-      className={`inline-flex items-center rounded-pill px-2.5 py-0.5 text-[12px] font-medium ${tones[tone]}`}
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={`rounded-md p-1.5 transition-colors disabled:opacity-45 ${
+        tone === "danger"
+          ? "text-fg-muted hover:bg-danger/10 hover:text-danger"
+          : "text-fg-muted hover:bg-surface-3 hover:text-fg"
+      }`}
     >
       {children}
-    </span>
+    </button>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M8 2.2v6.2M5.4 6.1 8 8.7l2.6-2.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3.2 10.1v1.5c0 .6.5 1.1 1.1 1.1h7.4c.6 0 1.1-.5 1.1-1.1v-1.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M9.4 3.1 12.9 6.6 6.1 13.4H2.6V9.9Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M8 8.8V2.6M5.4 4.8 8 2.2l2.6 2.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3.2 10.1v1.5c0 .6.5 1.1 1.1 1.1h7.4c.6 0 1.1-.5 1.1-1.1v-1.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M3.2 4.4h9.6M6.3 4.3V3h3.4v1.3M4.5 4.4l.5 8.3h6l.5-8.3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -202,70 +300,87 @@ export function SessionPaperwork({
     !paperwork.consentSigned && "consentement",
   ].filter(Boolean);
 
-  const formCard = (
+  const liveScan = (kind: DocumentKind) =>
+    paperwork.documents.find((document) => document.kind === kind && !document.voidReason) ?? null;
+
+  const formRow = (
     kind: FormKind,
     title: string,
     state: { tone: Tone; label: string },
     exists: boolean,
     signed: boolean,
     signedKind: DocumentKind,
-  ) => (
-    <li className="flex flex-col gap-3 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-[14px] font-medium">{title}</p>
-        <Badge tone={state.tone}>{state.label}</Badge>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {(exists || !readOnly) && (
-          <button
-            type="button"
+    when: string | null,
+  ) => {
+    const scan = liveScan(signedKind);
+    const openLabel =
+      signed || readOnly ? `Voir ${title}` : exists ? `Modifier ${title}` : `Remplir ${title}`;
+    const stamp = scan?.createdAt ?? when;
+    return (
+      <li className="flex items-center gap-3 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+            <p className="text-[14px] font-medium">{title}</p>
+            <StatusText tone={state.tone}>{state.label}</StatusText>
+          </div>
+          <p className="mt-0.5 text-[12.5px] text-fg-faint">
+            {stamp ? formatTimestamp(stamp) : "Pas encore rempli"}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center">
+          {(exists || !readOnly) && (
+            <IconButton
+              label={openLabel}
+              disabled={busy}
+              onClick={() => onOpenForm(kind, paperwork)}
+            >
+              <PencilIcon />
+            </IconButton>
+          )}
+          <IconButton
+            label={`Imprimer ${title}`}
             disabled={busy}
-            onClick={() => onOpenForm(kind, paperwork)}
-            className={exists || readOnly ? btnGhost : btnPrimary}
+            onClick={() => void run(() => store.print(sessionId, kind))}
           >
-            {signed || readOnly ? "Voir les réponses" : exists ? "Modifier" : "Remplir"}
-          </button>
-        )}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void run(() => store.print(sessionId, kind))}
-          className={btnGhost}
-        >
-          Imprimer
-        </button>
-        {!signed && !readOnly && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void attach(signedKind)}
-            className={btnGhost}
-          >
-            Joindre le scan signé
-          </button>
-        )}
-      </div>
-    </li>
+            <DownloadIcon />
+          </IconButton>
+          {!signed && !readOnly && (
+            <IconButton
+              label={`Joindre le scan signé, ${title}`}
+              disabled={busy}
+              onClick={() => void attach(signedKind)}
+            >
+              <UploadIcon />
+            </IconButton>
+          )}
+          {scan && !readOnly && (
+            <IconButton
+              label={`Annuler le scan, ${title}`}
+              disabled={busy}
+              tone="danger"
+              onClick={() => void voidDocument(scan)}
+            >
+              <TrashIcon />
+            </IconButton>
+          )}
+        </div>
+      </li>
+    );
+  };
+
+  const extraDocuments = paperwork.documents.filter(
+    (document) =>
+      document.kind === "OTHER" ||
+      ((document.kind === "HEALTH_SIGNED" || document.kind === "CONSENT_SIGNED") &&
+        document.voidReason),
   );
 
   return (
     <section className="flex flex-col gap-3">
       <div>
         <h2 className="text-[14px] font-medium">Documents</h2>
-        <p className="mt-0.5 text-[12.5px] text-fg-muted">
-          Remplis avec le client, imprime, fais signer, puis joins le scan ou une photo.
-        </p>
+        <p className="mt-0.5 text-[12.5px] text-fg-faint">À remplir par le client, puis par toi.</p>
       </div>
-      <label className="flex items-start gap-2.5 text-[13.5px] text-fg">
-        <input
-          type="checkbox"
-          checked={aftercareExplained}
-          disabled={readOnly || busy || aftercareBusy}
-          onChange={(event) => onAftercareExplained(event.target.checked)}
-          className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
-        />
-        J’ai expliqué les règles d’hygiène après le tatouage.
-      </label>
 
       {paperwork.clientMinor === true && (
         <Alert tone="warning">
@@ -287,102 +402,98 @@ export function SessionPaperwork({
 
       {error && <p className="text-[13px] text-danger">{error}</p>}
 
-      <ul className={`${cardClass} divide-y divide-line`}>
-        {formCard(
-          "HEALTH",
-          "Questionnaire de santé",
-          health,
-          paperwork.health !== null,
-          paperwork.healthSigned,
-          "HEALTH_SIGNED",
-        )}
-        {formCard(
-          "CONSENT",
-          "Consentement éclairé",
-          consent,
-          paperwork.consent !== null,
-          paperwork.consentSigned,
-          "CONSENT_SIGNED",
-        )}
-        <li className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <div>
-            <p className="text-[14px] font-medium">Conseils de cicatrisation</p>
-            <p className="mt-0.5 text-[12.5px] text-fg-muted">Fiche à remettre au client.</p>
-          </div>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void run(() => store.openAftercare())}
-            className={btnGhost}
-          >
-            Ouvrir la fiche
-          </button>
-        </li>
-      </ul>
-
-      <div className="mt-2 flex items-center justify-between gap-3">
-        <h3 className="text-[13px] font-medium text-fg-muted">Fichiers joints</h3>
-        {!readOnly && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void attach("OTHER")}
-            className={btnGhost}
-          >
-            Joindre un autre document
-          </button>
-        )}
-      </div>
-      {paperwork.documents.length === 0 ? (
-        <p className={`${cardClass} px-4 py-5 text-center text-[13px] text-fg-muted`}>
-          Aucun fichier joint.
-        </p>
-      ) : (
-        <ul className={`${cardClass} divide-y divide-line`}>
-          {paperwork.documents.map((document) => (
-            <li key={document.id} className="flex items-start gap-3 px-4 py-3">
+      <div className={cardClass}>
+        <ul className="divide-y divide-line">
+          {formRow(
+            "HEALTH",
+            "Questionnaire de santé",
+            health,
+            paperwork.health !== null,
+            paperwork.healthSigned,
+            "HEALTH_SIGNED",
+            paperwork.health?.updatedAt ?? null,
+          )}
+          {formRow(
+            "CONSENT",
+            "Consentement éclairé",
+            consent,
+            paperwork.consent !== null,
+            paperwork.consentSigned,
+            "CONSENT_SIGNED",
+            paperwork.consent?.updatedAt ?? null,
+          )}
+          <li className="flex items-center gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[14px] font-medium">Conseils de cicatrisation</p>
+              <p className="mt-0.5 text-[12.5px] text-fg-faint">Fiche à remettre au client.</p>
+            </div>
+            <IconButton
+              label="Ouvrir la fiche de cicatrisation"
+              disabled={busy}
+              onClick={() => void run(() => store.openAftercare())}
+            >
+              <DownloadIcon />
+            </IconButton>
+          </li>
+          {extraDocuments.map((document) => (
+            <li key={document.id} className="flex items-center gap-3 px-4 py-3">
               <div className="min-w-0 flex-1">
                 <p
-                  className={`truncate text-[13.5px] font-medium ${document.voidReason ? "text-fg-muted line-through" : ""}`}
+                  className={`truncate text-[14px] font-medium ${document.voidReason ? "text-fg-muted line-through" : ""}`}
                 >
                   {document.originalName}
                 </p>
-                <p className="mt-0.5 text-[12.5px] text-fg-muted">
+                <p className="mt-0.5 text-[12.5px] text-fg-faint">
                   {DOCUMENT_LABELS[document.kind]} · {formatTimestamp(document.createdAt)} ·{" "}
                   {formatSize(document.sizeBytes)}
+                  {document.voidReason
+                    ? ` · Annulé${document.voidedAt ? ` le ${formatTimestamp(document.voidedAt)}` : ""} : ${document.voidReason}`
+                    : ""}
                 </p>
-                {document.voidReason && (
-                  <p className="mt-0.5 text-[12.5px] text-fg-muted">
-                    Annulé
-                    {document.voidedAt ? ` le ${formatTimestamp(document.voidedAt)}` : ""} :{" "}
-                    {document.voidReason}
-                  </p>
-                )}
               </div>
-              <div className="flex shrink-0 gap-2">
-                <button
-                  type="button"
+              <div className="flex shrink-0 items-center">
+                <IconButton
+                  label={`Ouvrir ${document.originalName}`}
                   disabled={busy}
                   onClick={() => void run(() => store.open(document.id))}
-                  className={btnGhost}
                 >
-                  Ouvrir
-                </button>
+                  <DownloadIcon />
+                </IconButton>
                 {!readOnly && !document.voidReason && (
-                  <button
-                    type="button"
+                  <IconButton
+                    label={`Annuler ${document.originalName}`}
                     disabled={busy}
+                    tone="danger"
                     onClick={() => void voidDocument(document)}
-                    className={btnGhost}
                   >
-                    Annuler
-                  </button>
+                    <TrashIcon />
+                  </IconButton>
                 )}
               </div>
             </li>
           ))}
         </ul>
-      )}
+        {!readOnly && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void attach("OTHER")}
+            className="w-full border-t border-line px-4 py-3 text-center text-[13.5px] text-fg-muted transition-colors hover:text-fg disabled:opacity-45"
+          >
+            + Ajouter un document
+          </button>
+        )}
+        <label className="flex items-start gap-2.5 border-t border-line px-4 py-3 text-[13.5px] text-fg">
+          <input
+            type="checkbox"
+            checked={aftercareExplained}
+            disabled={readOnly || busy || aftercareBusy}
+            onChange={(event) => onAftercareExplained(event.target.checked)}
+            className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
+          />
+          J’ai expliqué les règles d’hygiène après le tatouage.
+        </label>
+      </div>
     </section>
   );
 }

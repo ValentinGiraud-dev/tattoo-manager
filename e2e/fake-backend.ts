@@ -46,6 +46,7 @@ export function installFakeBackend(scenario: Scenario) {
       createdAt: stamp,
       updatedAt: stamp,
       archivedAt: null as string | null,
+      sessionCount: 1,
     },
   ];
   const projects = [
@@ -472,6 +473,7 @@ export function installFakeBackend(scenario: Scenario) {
         createdAt: stamp,
         updatedAt: stamp,
         archivedAt: null,
+        sessionCount: 0,
       } as (typeof clients)[number];
       clients.push(client);
       return client;
@@ -514,6 +516,16 @@ export function installFakeBackend(scenario: Scenario) {
       return Boolean(session.archivedAt) === Boolean(archived) ? [session] : [];
     },
     get_session: () => session,
+    preview_session_removal: () => ({
+      sessionId: session.id,
+      archived: session.archivedAt !== null,
+      canDelete: session.usageCount === 0 && session.moneyCount === 0,
+      usageCount: session.usageCount,
+      formCount: 0,
+      documentCount: 0,
+      paymentCount: 0,
+      depositCount: 0,
+    }),
     update_session: ({ input }) => {
       const next = input as { status?: typeof session.status };
       if (next.status) session.status = next.status;
@@ -702,6 +714,8 @@ export function installFakeBackend(scenario: Scenario) {
           (!q.clientId || entry.clientId === q.clientId) &&
           (!q.sessionId || entry.sessionId === q.sessionId) &&
           (!q.lotId || entry.lotId === q.lotId) &&
+          (!q.entity || entry.entity === q.entity) &&
+          (!q.entityId || entry.entityId === q.entityId) &&
           (!q.group || auditGroups[String(q.group)].includes(entry.entity)) &&
           (!q.from || entry.occurredAt.slice(0, 10) >= String(q.from)) &&
           (!q.to || entry.occurredAt.slice(0, 10) <= String(q.to)),

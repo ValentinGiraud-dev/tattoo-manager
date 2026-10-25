@@ -1,8 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { DateSelector } from "../../components/date-selector";
-import { formatIsoDate, formatTimestamp } from "../../lib/format";
+import { DataTable } from "../../components/data-table";
+import { formatTimestamp, formatWeekdayDate } from "../../lib/format";
 import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
-import { useClientsStore, type Client, type ClientInput } from "../../stores/clients-store";
+import {
+  useClientsStore,
+  type Client,
+  type ClientInput,
+  type ClientListItem,
+} from "../../stores/clients-store";
 import { ClientHistory } from "./client-history";
 import { AuditHistory } from "../journal/audit-history";
 import { ClientProjects } from "./client-projects";
@@ -13,25 +19,78 @@ import { ArchiveBanner, ArchiveFilter } from "../../components/archive-controls"
 import { useConfirm } from "../../components/use-confirm";
 import { useUIStore } from "../../stores/ui-store";
 
-type View =
-  { kind: "list" } | { kind: "form"; client?: Client } | { kind: "detail"; client: Client };
+type View = { kind: "list" } | { kind: "editor"; client?: Client };
 
 const emptyToNull = (value: string) => (value.trim() === "" ? null : value.trim());
 
-function initials(client: Client) {
-  return `${client.firstName.charAt(0)}${client.lastName.charAt(0)}`.toUpperCase();
+function blank(value: string | null): string {
+  const text = value?.trim() ?? "";
+  return text === "" ? "—" : text;
 }
 
-function ClientForm({ client, onDone }: { client?: Client; onDone: (saved?: Client) => void }) {
-  const { create, update } = useClientsStore();
+function sessionLabel(count: number): string {
+  return `${count} séance${count === 1 ? "" : "s"}`;
+}
+
+function latestUpdatedAt(clients: ClientListItem[]): string | null {
+  let latest: string | null = null;
+  let latestTime = Number.NEGATIVE_INFINITY;
+  for (const client of clients) {
+    const utc = /[zZ]|[+-]\d{2}:\d{2}$/.test(client.updatedAt)
+      ? client.updatedAt
+      : `${client.updatedAt}Z`;
+    const time = new Date(utc).getTime();
+    if (!Number.isNaN(time) && time > latestTime) {
+      latestTime = time;
+      latest = client.updatedAt;
+    }
+  }
+  return latest;
+}
+
+function ClientEditor({
+  client,
+  onBack,
+  onSaved,
+}: {
+  client?: Client;
+  onBack: () => void;
+  onSaved: (client: Client) => void;
+}) {
+  const { create, update, remove, archive, restore, previewRemoval, get } = useClientsStore();
+  const confirm = useConfirm();
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [action, setAction] = useState<"delete" | "archive" | null>(null);
   const guardedLeave = useGuardedLeave();
   useUnsavedChanges(dirty);
+  const archived = client?.archivedAt != null;
+
+  useEffect(() => {
+    if (!client || archived) return;
+    let cancelled = false;
+    previewRemoval(client.id)
+      .then((preview) => {
+        if (!cancelled) setAction(preview.canDelete ? "delete" : "archive");
+      })
+      .catch(() => {
+        if (!cancelled) setAction(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [archived, client, previewRemoval]);
+
+  function leave() {
+    void guardedLeave(onBack);
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (archived) return;
     const data = new FormData(event.currentTarget);
     const text = (name: string) => String(data.get(name) ?? "");
     const input: ClientInput = {
@@ -49,7 +108,7 @@ function ClientForm({ client, onDone }: { client?: Client; onDone: (saved?: Clie
       const saved = client ? await update(client.id, input) : await create(input);
       setDirty(false);
       toast.success(client ? "Fiche client enregistrée" : "Client créé");
-      onDone(saved);
+      onSaved(saved);
     } catch (submitError) {
       setError(String(submitError));
     } finally {
@@ -57,142 +116,15 @@ function ClientForm({ client, onDone }: { client?: Client; onDone: (saved?: Clie
     }
   }
 
-  return (
-    <form
-      onSubmit={(event) => void submit(event)}
-      onInput={(event) => {
-        if ((event.target as HTMLElement).getAttribute("name")) setDirty(true);
-      }}
-      className="mx-auto flex max-w-xl flex-col gap-4 px-8 py-10"
-    >
-      <div>
-        <button
-          type="button"
-          onClick={() => void guardedLeave(() => onDone())}
-          className="mb-4 text-[13px] text-fg-muted hover:text-fg"
-        >
-          ← Retour
-        </button>
-        <h1 className="text-[24px] font-medium tracking-tight">
-          {client ? "Modifier le client" : "Nouveau client"}
-        </h1>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className={labelClass}>
-          Prénom *
-          <input
-            name="firstName"
-            required
-            defaultValue={client?.firstName}
-            className={fieldClass}
-          />
-        </label>
-        <label className={labelClass}>
-          Nom *
-          <input name="lastName" required defaultValue={client?.lastName} className={fieldClass} />
-        </label>
-      </div>
-
-      <div>
-        <label htmlFor="client-birth-date" className={labelClass}>
-          Date de naissance
-        </label>
-        <DateSelector
-          id="client-birth-date"
-          name="birthDate"
-          defaultValue={client?.birthDate ?? null}
-          onChange={() => setDirty(true)}
-          placeholder="Choisir une date de naissance"
-        />
-      </div>
-      <label className={labelClass}>
-        Adresse
-        <textarea
-          name="address"
-          rows={2}
-          defaultValue={client?.address ?? ""}
-          placeholder="Demandée par le consentement"
-          className={fieldClass}
-        />
-      </label>
-      <label className={labelClass}>
-        Email
-        <input
-          name="email"
-          type="email"
-          defaultValue={client?.email ?? ""}
-          className={fieldClass}
-        />
-      </label>
-      <label className={labelClass}>
-        Téléphone
-        <input name="phone" type="tel" defaultValue={client?.phone ?? ""} className={fieldClass} />
-      </label>
-      <label className={labelClass}>
-        Notes
-        <textarea name="notes" rows={4} defaultValue={client?.notes ?? ""} className={fieldClass} />
-      </label>
-
-      {error && <p className="text-[13px] text-danger">{error}</p>}
-
-      <div className="flex items-center gap-3 pt-1">
-        <button type="submit" disabled={saving} className={btnPrimary}>
-          {saving ? "Enregistrement…" : "Enregistrer"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void guardedLeave(() => onDone())}
-          className={btnGhost}
-        >
-          Annuler
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function ClientDetail({
-  client,
-  onEdit,
-  onBack,
-  onChange,
-}: {
-  client: Client;
-  onEdit: () => void;
-  onBack: () => void;
-  onChange: (client: Client) => void;
-}) {
-  const { remove, archive, restore, previewRemoval, get } = useClientsStore();
-  const confirm = useConfirm();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [action, setAction] = useState<"delete" | "archive" | null>(null);
-  const archived = client.archivedAt !== null;
-
-  useEffect(() => {
-    if (archived) return;
-    let cancelled = false;
-    previewRemoval(client.id)
-      .then((preview) => {
-        if (!cancelled) setAction(preview.canDelete ? "delete" : "archive");
-      })
-      .catch(() => {
-        if (!cancelled) setAction(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [archived, client.id, previewRemoval]);
-
   async function removeOrArchive() {
-    setError(null);
+    if (!client) return;
+    setActionError(null);
     const name = `${client.firstName} ${client.lastName}`;
     let preview;
     try {
       preview = await previewRemoval(client.id);
     } catch (previewError) {
-      setError(String(previewError));
+      setActionError(String(previewError));
       return;
     }
     if (preview.canDelete) {
@@ -211,7 +143,7 @@ function ClientDetail({
         toast.success("Client supprimé");
         onBack();
       } catch (deleteError) {
-        setError(String(deleteError));
+        setActionError(String(deleteError));
         setBusy(false);
       }
       return;
@@ -241,12 +173,13 @@ function ClientDetail({
       toast.success("Client archivé");
       onBack();
     } catch (archiveError) {
-      setError(String(archiveError));
+      setActionError(String(archiveError));
       setBusy(false);
     }
   }
 
   async function unarchive() {
+    if (!client) return;
     const ok = await confirm({
       title: "Désarchiver ce client ?",
       body: "Il revient dans les listes. Le stock remis à l'archivage est de nouveau décompté, si le stock suffit.",
@@ -254,60 +187,165 @@ function ClientDetail({
     });
     if (!ok) return;
     setBusy(true);
-    setError(null);
+    setActionError(null);
     try {
       await restore(client.id);
       const fresh = await get(client.id);
       toast.success("Client désarchivé");
-      onChange(fresh);
+      onSaved(fresh);
     } catch (restoreError) {
-      setError(String(restoreError));
+      setActionError(String(restoreError));
     } finally {
       setBusy(false);
     }
   }
-  const rows: [string, string | null][] = [
-    ["Date de naissance", client.birthDate ? formatIsoDate(client.birthDate) : null],
-    ["Adresse", client.address],
-    ["Email", client.email],
-    ["Téléphone", client.phone],
-    ["Notes", client.notes],
-    ["Créé le", formatTimestamp(client.createdAt)],
-    ["Modifié le", formatTimestamp(client.updatedAt)],
-  ];
 
   return (
-    <div className="mx-auto flex max-w-xl flex-col gap-5 px-8 py-10">
-      <BackButton listLabel="Clients" onList={onBack} />
+    <div className="mx-auto flex max-w-6xl flex-col gap-8 px-8 py-10">
+      <div>
+        <h1 className="text-[16px] font-medium tracking-tight">
+          {client ? `${client.firstName} ${client.lastName}` : "Nouveau client"}
+        </h1>
+        <div className="mt-1">
+          <BackButton listLabel="Clients" onList={leave} />
+        </div>
+      </div>
+
       {archived && (
         <ArchiveBanner>
           Archivé. Cette fiche est en lecture seule. Désarchive-la pour la modifier.
         </ArchiveBanner>
       )}
-      <div className="flex items-start gap-4">
-        <span className="grid size-12 place-items-center rounded-md border border-line bg-surface-2 text-[14px] font-medium text-fg-muted">
-          {initials(client)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[24px] font-medium tracking-tight">
-            {client.firstName} {client.lastName}
-          </h1>
-          <p className="mt-1 text-[13px] text-fg-muted">
-            {[client.email, client.phone].filter(Boolean).join(" · ") || "Aucun contact"}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {archived ? (
-            <button
-              type="button"
-              onClick={() => void unarchive()}
-              disabled={busy}
-              className={btnPrimary}
-            >
-              {busy ? "Désarchivage…" : "Désarchiver"}
-            </button>
-          ) : (
-            <>
+
+      <div className="grid items-start gap-10 lg:grid-cols-2">
+        <form
+          onSubmit={(event) => void submit(event)}
+          onInput={(event) => {
+            if ((event.target as HTMLElement).getAttribute("name")) setDirty(true);
+          }}
+          className="flex flex-col gap-4"
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className={labelClass}>
+              Nom *
+              <input
+                name="lastName"
+                required
+                disabled={archived}
+                defaultValue={client?.lastName}
+                className={fieldClass}
+              />
+            </label>
+            <label className={labelClass}>
+              Prénom *
+              <input
+                name="firstName"
+                required
+                disabled={archived}
+                defaultValue={client?.firstName}
+                className={fieldClass}
+              />
+            </label>
+          </div>
+
+          <div>
+            <label htmlFor="client-birth-date" className={labelClass}>
+              Date de naissance
+            </label>
+            <DateSelector
+              id="client-birth-date"
+              name="birthDate"
+              disabled={archived}
+              defaultValue={client?.birthDate ?? null}
+              onChange={() => setDirty(true)}
+              placeholder="Choisir une date de naissance"
+            />
+          </div>
+          <label className={labelClass}>
+            Adresse
+            <textarea
+              name="address"
+              rows={2}
+              disabled={archived}
+              defaultValue={client?.address ?? ""}
+              placeholder="Demandée par le consentement"
+              className={fieldClass}
+            />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className={labelClass}>
+              Email
+              <input
+                name="email"
+                type="email"
+                disabled={archived}
+                defaultValue={client?.email ?? ""}
+                className={fieldClass}
+              />
+            </label>
+            <label className={labelClass}>
+              Téléphone
+              <input
+                name="phone"
+                type="tel"
+                disabled={archived}
+                defaultValue={client?.phone ?? ""}
+                className={fieldClass}
+              />
+            </label>
+          </div>
+          <label className={labelClass}>
+            Notes
+            <textarea
+              name="notes"
+              rows={4}
+              disabled={archived}
+              defaultValue={client?.notes ?? ""}
+              className={fieldClass}
+            />
+          </label>
+
+          {error && <p className="text-[13px] text-danger">{error}</p>}
+
+          {!archived && (
+            <div className="flex items-center gap-3 pt-1">
+              <button type="submit" disabled={saving} className={btnPrimary}>
+                {saving ? "Enregistrement…" : "Enregistrer"}
+              </button>
+              <button type="button" onClick={leave} className={btnGhost}>
+                Annuler
+              </button>
+            </div>
+          )}
+        </form>
+
+        <ClientHistory
+          key={client?.id ?? "new"}
+          clientId={client?.id}
+          canAdd={client !== undefined && !archived}
+        />
+      </div>
+
+      {client && (
+        <div className="flex flex-col gap-8 border-t border-line pt-8">
+          <AuditHistory key={`audit-${client.id}`} target={{ kind: "client", id: client.id }} />
+          <ClientProjects
+            key={`projects-${client.id}`}
+            clientId={client.id}
+            clientArchived={archived}
+          />
+          {actionError && <p className="text-[13px] text-danger">{actionError}</p>}
+          <div>
+            {archived ? (
+              <button
+                type="button"
+                onClick={() => void unarchive()}
+                disabled={busy}
+                className={btnPrimary}
+              >
+                {busy ? "Désarchivage…" : "Désarchiver"}
+              </button>
+            ) : (
               <button
                 type="button"
                 onClick={() => void removeOrArchive()}
@@ -318,30 +356,72 @@ function ClientDetail({
                   {busy ? "En cours…" : action === "delete" ? "Supprimer" : "Archiver"}
                 </span>
               </button>
-              <button type="button" onClick={onEdit} className={btnPrimary}>
-                Modifier
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-      {error && <p className="text-[13px] text-danger">{error}</p>}
-      <dl className="grid gap-3 rounded-lg border border-line bg-surface p-4">
-        {rows.map(([label, value]) => (
-          <div key={label} className="grid grid-cols-[9rem_1fr] gap-3 text-[13.5px]">
-            <dt className="text-fg-faint">{label}</dt>
-            <dd className="whitespace-pre-wrap text-fg">{value ?? "—"}</dd>
+            )}
           </div>
-        ))}
-      </dl>
-      <ClientProjects
-        key={`projects-${client.id}`}
-        clientId={client.id}
-        clientArchived={archived}
-      />
-      <ClientHistory key={client.id} clientId={client.id} />
-      <AuditHistory key={`audit-${client.id}`} target={{ kind: "client", id: client.id }} />
+        </div>
+      )}
     </div>
+  );
+}
+
+function ClientTable({
+  clients,
+  pageResetKey,
+  onOpen,
+  onEdit,
+}: {
+  clients: ClientListItem[];
+  pageResetKey: string;
+  onOpen: (client: ClientListItem) => void;
+  onEdit: (client: ClientListItem) => void;
+}) {
+  return (
+    <DataTable
+      label="Clients"
+      rows={clients}
+      rowKey={(client) => client.id}
+      rowLabel={(client) => `${client.firstName} ${client.lastName}`}
+      pageResetKey={pageResetKey}
+      onRowClick={onOpen}
+      rowActions={(client) => [
+        { id: "open", label: "Ouvrir", onSelect: () => onOpen(client) },
+        { id: "edit", label: "Modifier", onSelect: () => onEdit(client) },
+      ]}
+      columns={[
+        {
+          id: "name",
+          header: "Nom du client",
+          className: "w-[20%]",
+          cell: (client) => (
+            <span className="text-fg">{`${client.firstName} ${client.lastName}`}</span>
+          ),
+        },
+        {
+          id: "email",
+          header: "Adresse mail",
+          className: "w-[22%]",
+          cell: (client) => blank(client.email),
+        },
+        {
+          id: "phone",
+          header: "Numéro de téléphone",
+          className: "w-[22%]",
+          cell: (client) => blank(client.phone),
+        },
+        {
+          id: "created",
+          header: "Créé le",
+          className: "w-[16%]",
+          cell: (client) => formatTimestamp(client.createdAt),
+        },
+        {
+          id: "sessions",
+          header: "Séances",
+          className: "w-[12%]",
+          cell: (client) => sessionLabel(client.sessionCount),
+        },
+      ]}
+    />
   );
 }
 
@@ -351,7 +431,7 @@ export default function ClientsPage() {
   const clientIntent = useUIStore((state) => state.clientIntent);
   const takeClientIntent = useUIStore((state) => state.takeClientIntent);
   const setDetail = useUIStore((state) => state.setDetail);
-  const detailId = view.kind === "detail" ? view.client.id : null;
+  const detailId = view.kind === "editor" ? (view.client?.id ?? null) : null;
 
   // Client demandé depuis un autre écran (séance, accueil…).
   useEffect(() => {
@@ -359,7 +439,7 @@ export default function ClientsPage() {
     const clientId = takeClientIntent();
     if (!clientId) return;
     void getClient(clientId)
-      .then((client) => setView({ kind: "detail", client }))
+      .then((client) => setView({ kind: "editor", client }))
       .catch(() => setView({ kind: "list" }));
   }, [clientIntent, takeClientIntent, getClient]);
 
@@ -371,63 +451,53 @@ export default function ClientsPage() {
     void load("");
   }, [load]);
 
-  if (view.kind === "form") {
+  if (view.kind === "editor") {
     return (
-      <ClientForm
+      <ClientEditor
+        key={view.client?.id ?? "new"}
         client={view.client}
-        onDone={(saved) =>
-          setView(
-            saved
-              ? { kind: "detail", client: saved }
-              : view.client
-                ? { kind: "detail", client: view.client }
-                : { kind: "list" },
-          )
-        }
+        onBack={() => setView({ kind: "list" })}
+        onSaved={(saved) => setView({ kind: "editor", client: saved })}
       />
     );
   }
 
-  if (view.kind === "detail") {
-    return (
-      <ClientDetail
-        client={view.client}
-        onEdit={() => setView({ kind: "form", client: view.client })}
-        onBack={() => setView({ kind: "list" })}
-        onChange={(client) => setView({ kind: "detail", client })}
-      />
-    );
-  }
+  const updatedAt = latestUpdatedAt(clients);
+  const subtitle =
+    loading && clients.length === 0
+      ? "Chargement…"
+      : updatedAt
+        ? `Dernière mise à jour - ${formatWeekdayDate(updatedAt)}`
+        : null;
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-10">
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-8 py-10">
+      <div>
+        <h1 className="text-[16px] font-medium tracking-tight">Mes clients</h1>
+        {subtitle ? <p className="mt-0.5 text-[12.5px] text-fg-faint">{subtitle}</p> : null}
+      </div>
+
       <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-[24px] font-medium tracking-tight">Clients</h1>
-          <p className="mt-1 text-[13px] text-fg-muted">
-            {loading ? "Chargement…" : `${clients.length} client${clients.length === 1 ? "" : "s"}`}
-          </p>
-        </div>
         <div className="flex items-center gap-3">
+          <input
+            type="search"
+            aria-label="Rechercher un client"
+            placeholder="Recherche"
+            value={search}
+            onChange={(event) => void load(event.target.value)}
+            className="w-64 rounded-md border border-line-strong bg-bg px-3 py-2 text-[14px] text-fg transition-[border-color,box-shadow] outline-none placeholder:text-fg-faint focus:border-accent"
+          />
           <ArchiveFilter
             archived={showArchived}
             onChange={(archived) => void load(search, archived)}
           />
-          {!showArchived && (
-            <button type="button" onClick={() => setView({ kind: "form" })} className={btnPrimary}>
-              Nouveau client
-            </button>
-          )}
         </div>
+        {!showArchived && (
+          <button type="button" onClick={() => setView({ kind: "editor" })} className={btnPrimary}>
+            Ajouter un client
+          </button>
+        )}
       </div>
-
-      <input
-        type="search"
-        placeholder="Rechercher (nom, email, téléphone)…"
-        value={search}
-        onChange={(event) => void load(event.target.value)}
-        className={fieldClass}
-      />
 
       {error && <p className="text-[13px] text-danger">{error}</p>}
 
@@ -443,38 +513,21 @@ export default function ClientsPage() {
           {!search && !showArchived && (
             <button
               type="button"
-              onClick={() => setView({ kind: "form" })}
+              onClick={() => setView({ kind: "editor" })}
               className={`${btnGhost} mt-4`}
             >
               Créer le premier client
             </button>
           )}
         </div>
-      ) : (
-        <ul className="overflow-hidden rounded-lg border border-line bg-surface">
-          {clients.map((client, index) => (
-            <li key={client.id} className={index > 0 ? "border-t border-line" : undefined}>
-              <button
-                type="button"
-                onClick={() => setView({ kind: "detail", client })}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2"
-              >
-                <span className="grid size-9 shrink-0 place-items-center rounded-md border border-line bg-surface-2 text-[12px] font-medium text-fg-muted">
-                  {initials(client)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] font-medium">
-                    {client.lastName} {client.firstName}
-                  </span>
-                  <span className="block truncate text-[12.5px] text-fg-muted">
-                    {client.email ?? client.phone ?? "—"}
-                  </span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      ) : clients.length > 0 ? (
+        <ClientTable
+          clients={clients}
+          pageResetKey={`${search}\0${String(showArchived)}`}
+          onOpen={(client) => setView({ kind: "editor", client })}
+          onEdit={(client) => setView({ kind: "editor", client })}
+        />
+      ) : null}
     </div>
   );
 }

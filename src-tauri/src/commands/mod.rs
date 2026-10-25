@@ -16,7 +16,7 @@ use crate::services::billing::{
 };
 use crate::services::categories::{self, CategoryInput, CategoryView, LowStockSetting};
 use crate::services::client_archive;
-use crate::services::clients::{self, ClientInput};
+use crate::services::clients::{self, ClientInput, ClientListItem};
 use crate::services::dashboard::{self, Dashboard, PeriodSummary};
 use crate::services::exports::{self, ExportKind};
 use crate::services::lots::{self, CreateLotInput, LotSummary, UpdateLotInput};
@@ -46,7 +46,7 @@ pub async fn list_clients(
     db: State<'_, Db>,
     search: Option<String>,
     archived: Option<bool>,
-) -> Result<Vec<Client>, String> {
+) -> Result<Vec<ClientListItem>, String> {
     clients::list_clients(&db.pool()?, search, archived.unwrap_or(false))
         .await
         .map_err(|error| error.to_string())

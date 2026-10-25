@@ -35,6 +35,9 @@ export type AuditQuery = {
   clientId?: string | null;
   sessionId?: string | null;
   lotId?: string | null;
+  /** Fiche produit : `entity` vaut `product`, `entityId` est l'identifiant. */
+  entity?: string | null;
+  entityId?: string | null;
   beforeSeq?: number | null;
   limit?: number;
 };

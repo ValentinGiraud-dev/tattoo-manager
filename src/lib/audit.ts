@@ -394,7 +394,10 @@ export function changeLines(entry: AuditEntry, names: Record<string, string>): C
 
 /** Fiche à ouvrir depuis une entrée, si elle a un sens. */
 export type EntryTarget =
-  { kind: "client"; id: string } | { kind: "session"; id: string } | { kind: "lot"; id: string };
+  | { kind: "client"; id: string }
+  | { kind: "session"; id: string }
+  | { kind: "lot"; id: string }
+  | { kind: "product"; id: string };
 
 export function entryTarget(entry: AuditEntry): EntryTarget | null {
   if (entry.action === "DELETE" && ["client", "session", "lot"].includes(entry.entity)) {
@@ -406,6 +409,7 @@ export function entryTarget(entry: AuditEntry): EntryTarget | null {
   if (entry.sessionId) return { kind: "session", id: entry.sessionId };
   if (entry.lotId) return { kind: "lot", id: entry.lotId };
   if (entry.clientId) return { kind: "client", id: entry.clientId };
+  if (entry.entity === "product" && entry.entityId) return { kind: "product", id: entry.entityId };
   return null;
 }
 

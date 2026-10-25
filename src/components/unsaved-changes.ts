@@ -1,19 +1,31 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useUIStore } from "../stores/ui-store";
 import { useConfirm } from "./use-confirm";
 
+const dirtySources = new Map<number, boolean>();
+let nextSource = 0;
+
+function publishDirty(setUnsavedChanges: (value: boolean) => void) {
+  setUnsavedChanges([...dirtySources.values()].some(Boolean));
+}
+
 /**
  * Déclare qu'un formulaire a des modifications non enregistrées.
- * Le drapeau est levé automatiquement quand le formulaire disparaît.
+ * Plusieurs formulaires sur le même écran se cumulent : le drapeau retombe
+ * quand plus aucun n'est sale, ou quand le formulaire disparaît.
  */
 export function useUnsavedChanges(dirty: boolean) {
   const setUnsavedChanges = useUIStore((state) => state.setUnsavedChanges);
+  const [source] = useState(() => nextSource++);
 
   useEffect(() => {
-    setUnsavedChanges(dirty);
-  }, [dirty, setUnsavedChanges]);
-
-  useEffect(() => () => setUnsavedChanges(false), [setUnsavedChanges]);
+    dirtySources.set(source, dirty);
+    publishDirty(setUnsavedChanges);
+    return () => {
+      dirtySources.delete(source);
+      publishDirty(setUnsavedChanges);
+    };
+  }, [dirty, setUnsavedChanges, source]);
 }
 
 /**

@@ -2,7 +2,7 @@ import { expect, test } from "./fixtures";
 
 test("une séance crée un client sur place et le choisit", async ({ page }) => {
   await page.getByRole("navigation").getByRole("button", { name: "Séances" }).click();
-  await page.getByRole("button", { name: "Nouvelle séance" }).click();
+  await page.getByRole("button", { name: "Ajouter une séance" }).click();
 
   const dialog = page.getByRole("dialog", { name: "Nouveau client" });
   await page.getByRole("button", { name: "Nouveau client" }).click();
@@ -38,7 +38,7 @@ test("une séance crée un client sur place et le choisit", async ({ page }) => 
 
 test("une séance propose un titre et un projet sans écraser le titre saisi", async ({ page }) => {
   await page.getByRole("navigation").getByRole("button", { name: "Séances" }).click();
-  await page.getByRole("button", { name: "Nouvelle séance" }).click();
+  await page.getByRole("button", { name: "Ajouter une séance" }).click();
 
   const title = page.getByLabel("Titre de la séance");
   await expect(title).toBeVisible();
@@ -62,18 +62,18 @@ test("une séance propose un titre et un projet sans écraser le titre saisi", a
   await expect(page.getByRole("button", { name: "Lier à un projet" })).toBeEnabled();
 });
 
-test("la modification d'une séance permet aussi de créer un client", async ({ page }) => {
+test("la fiche d'une séance permet aussi de créer un client", async ({ page }) => {
   await page.getByRole("navigation").getByRole("button", { name: "Séances" }).click();
-  await page.getByRole("button", { name: /Léa Martin/ }).click();
-  await page.getByRole("button", { name: "Modifier" }).click();
-  await expect(page.getByRole("heading", { name: "Modifier la séance" })).toBeVisible();
+  await page.getByRole("row", { name: /Léa Martin/ }).click();
+  await expect(page.getByRole("heading", { name: "Avant-bras" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Modifier la séance" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Nouveau client" })).toBeVisible();
   await expect(page.getByLabel("Client *")).toHaveValue("c1");
 });
 
 test("créer un client affiche un toast de confirmation", async ({ page }) => {
   await page.getByRole("navigation").getByRole("button", { name: "Clients" }).click();
-  await page.getByRole("button", { name: "Nouveau client" }).click();
+  await page.getByRole("button", { name: "Ajouter un client" }).click();
   await page.getByLabel("Prénom *").fill("Nina");
   await page.getByLabel("Nom *", { exact: true }).fill("Dupont");
   await page.getByRole("button", { name: "Enregistrer" }).click();
@@ -82,7 +82,7 @@ test("créer un client affiche un toast de confirmation", async ({ page }) => {
 
 test("supprimer un client demande confirmation", async ({ page }) => {
   await page.getByRole("navigation").getByRole("button", { name: "Clients" }).click();
-  await page.getByRole("button", { name: "Nouveau client" }).click();
+  await page.getByRole("button", { name: "Ajouter un client" }).click();
   await page.getByLabel("Prénom *").fill("Nina");
   await page.getByLabel("Nom *", { exact: true }).fill("Dupont");
   await page.getByRole("button", { name: "Enregistrer" }).click();
@@ -97,22 +97,22 @@ test("supprimer un client demande confirmation", async ({ page }) => {
   await confirm.getByRole("textbox").fill("SUPPRIMER");
   await confirm.getByRole("button", { name: "Supprimer le client" }).click();
   await expect(page.getByRole("list", { name: "Notifications" })).toContainText("Client supprimé");
-  await expect(page.getByRole("heading", { name: "Clients" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Mes clients" })).toBeVisible();
 });
 
 test("archiver un client le retire des actifs et le désarchivage le ramène", async ({ page }) => {
   await page.getByRole("navigation").getByRole("button", { name: "Clients" }).click();
-  await page.getByRole("button", { name: /Martin Léa/ }).click();
+  await page.getByRole("row", { name: /Léa Martin/ }).click();
   await page.getByRole("button", { name: "Archiver" }).click();
   const confirm = page.getByRole("alertdialog", { name: "Archiver ce client ?" });
   await expect(confirm.getByText(/usage unique/)).toBeVisible();
   await confirm.getByRole("button", { name: "Archiver le client" }).click();
   await expect(page.getByRole("list", { name: "Notifications" })).toContainText("Client archivé");
-  await expect(page.getByRole("heading", { name: "Clients" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Martin Léa/ })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Mes clients" })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Léa Martin/ })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Archivés" }).click();
-  await page.getByRole("button", { name: /Martin Léa/ }).click();
+  await page.getByRole("row", { name: /Léa Martin/ }).click();
   await expect(page.getByText("Archivé. Cette fiche est en lecture seule")).toBeVisible();
   await page.getByRole("button", { name: "Désarchiver" }).click();
   await page
@@ -122,7 +122,8 @@ test("archiver un client le retire des actifs et le désarchivage le ramène", a
   await expect(page.getByRole("list", { name: "Notifications" })).toContainText(
     "Client désarchivé",
   );
-  await expect(page.getByRole("button", { name: "Modifier" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Enregistrer" })).toBeVisible();
+  await expect(page.getByText("Archivé. Cette fiche est en lecture seule")).toHaveCount(0);
 });
 
 test("un export CSV prévient qu'il n'est pas chiffré et confirme l'enregistrement", async ({

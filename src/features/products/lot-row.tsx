@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import { sheetSummary } from "../../lib/product-sheets";
-import type { LotSummary, ProductSheet } from "../../stores/products-store";
+import type { LotSummary } from "../../stores/products-store";
 import { stockLabel } from "./lot-labels";
 
 const rowClass =
@@ -46,37 +45,6 @@ export function LotRow({
           {children} · {stockLabel(lot)}
         </span>
         {footer}
-      </span>
-    </button>
-  );
-}
-
-/** Ligne d'une fiche produit : nom, type, nombre de lots et stock utilisable. */
-export function SheetRow({
-  sheet,
-  showCategory,
-  onOpen,
-}: {
-  sheet: ProductSheet;
-  showCategory: boolean;
-  onOpen: () => void;
-}) {
-  return (
-    <button type="button" onClick={onOpen} className={rowClass}>
-      <span className="min-w-0 flex-1">
-        <span className="flex flex-wrap items-center gap-2">
-          <span className="truncate text-[14px] font-medium">{sheet.displayName}</span>
-          <Badge>{sheet.singleUse ? "Unique" : "Multiple"}</Badge>
-          {sheet.lowStock && <Badge tone="warning">Stock bas</Badge>}
-        </span>
-        <span className="mt-0.5 block truncate text-[12.5px] text-fg-muted">
-          {sheetSummary(sheet)}
-        </span>
-        {showCategory && sheet.categoryPath && (
-          <span className="mt-0.5 block truncate text-[12px] text-fg-faint">
-            {sheet.categoryPath}
-          </span>
-        )}
       </span>
     </button>
   );

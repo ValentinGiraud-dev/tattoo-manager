@@ -1,9 +1,19 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use super::sql::{clean, like_pattern, NOW};
 
 use crate::models::Client;
+
+/// Ligne de la liste : la fiche, plus le nombre de séances (archivées comprises).
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientListItem {
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub client: Client,
+    pub session_count: i64,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,12 +79,14 @@ pub async fn list_clients(
     pool: &SqlitePool,
     search: Option<String>,
     archived: bool,
-) -> Result<Vec<Client>, ClientError> {
+) -> Result<Vec<ClientListItem>, ClientError> {
     let pattern = like_pattern(search);
 
-    let clients = sqlx::query_as::<_, Client>(
-        "SELECT * FROM clients
-         WHERE (archived_at IS NOT NULL) = ?2 AND (?1 IS NULL
+    let clients = sqlx::query_as::<_, ClientListItem>(
+        "SELECT clients.*,
+                (SELECT COUNT(*) FROM sessions WHERE sessions.client_id = clients.id) AS session_count
+         FROM clients
+         WHERE (clients.archived_at IS NOT NULL) = ?2 AND (?1 IS NULL
             OR first_name LIKE ?1 ESCAPE '\\'
             OR last_name LIKE ?1 ESCAPE '\\'
             OR first_name || ' ' || last_name LIKE ?1 ESCAPE '\\'

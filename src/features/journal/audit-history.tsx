@@ -14,7 +14,7 @@ type State =
   | { status: "error"; page: AuditPage | null; message: string };
 
 /**
- * Historique d'une fiche (client, séance ou lot), replié par défaut.
+ * Historique d'une fiche (client, séance, lot ou produit), replié par défaut.
  * Chaque ouverture relit le journal : il montre toujours l'état à jour.
  */
 export function AuditHistory({ target }: { target: EntryTarget }) {
@@ -28,6 +28,8 @@ export function AuditHistory({ target }: { target: EntryTarget }) {
       clientId: target.kind === "client" ? target.id : null,
       sessionId: target.kind === "session" ? target.id : null,
       lotId: target.kind === "lot" ? target.id : null,
+      entity: target.kind === "product" ? "product" : null,
+      entityId: target.kind === "product" ? target.id : null,
       beforeSeq: last?.seq ?? null,
       limit: PAGE_SIZE,
     })

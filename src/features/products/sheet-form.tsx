@@ -77,11 +77,14 @@ export function SheetForm({
   sheet,
   fromLot,
   defaultCategoryId = null,
+  locked = false,
   onDone,
 }: {
   sheet?: ProductSheet;
   fromLot?: LotSummary;
   defaultCategoryId?: string | null;
+  /** Fiche archivée : les champs se lisent, rien ne s'enregistre. */
+  locked?: boolean;
   onDone: (saved?: ProductSheet) => void;
 }) {
   const { categories, createSheet, updateSheet, listAllLots } = useProductsStore();
@@ -166,6 +169,7 @@ export function SheetForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (locked) return;
     if (name.trim() === "") {
       setError("Le nom du produit est obligatoire");
       return;
@@ -219,186 +223,176 @@ export function SheetForm({
     }
   }
 
+  function leave() {
+    void guardedLeave(() => onDone());
+  }
+
   return (
-    <form
-      onSubmit={(event) => void submit(event)}
-      className="mx-auto flex max-w-xl flex-col gap-4 px-8 py-10"
-    >
-      <div>
-        <button
-          type="button"
-          onClick={() => void guardedLeave(() => onDone())}
-          className="mb-4 text-[13px] text-fg-muted hover:text-fg"
-        >
-          ← Retour
-        </button>
-        <h1 className="text-[24px] font-medium tracking-tight">
-          {sheet ? "Modifier la fiche produit" : "Nouvelle fiche produit"}
-        </h1>
-        <p className="mt-1 text-[13px] text-fg-muted">
-          Ce que tu achètes et réachètes. Chaque réception crée un lot rattaché à la fiche.
-        </p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className={labelClass}>
-          Nom *
-          <input
-            autoFocus
-            required
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Ex. Triple Black, Aiguille 3RL"
-            maxLength={120}
-            className={fieldClass}
-          />
-        </label>
-        <label className={labelClass}>
-          Marque
-          <input
-            value={brand}
-            onChange={(event) => setBrand(event.target.value)}
-            placeholder="Ex. Dynamic"
-            maxLength={120}
-            className={fieldClass}
-          />
-        </label>
-      </div>
-
-      <CategorySelect categories={categories} value={categoryId} onChange={setCategoryId} />
-
-      <TypeToggle singleUse={singleUse} onChange={setSingleUse} disabled={typeLocked} />
-
-      {!singleUse && (
-        <label className={labelClass}>
-          Durée après ouverture (mois)
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={months}
-            onChange={(event) => setMonths(event.target.value)}
-            placeholder="Ex. 12"
-            className={fieldClass}
-          />
-        </label>
-      )}
-
-      <label className={labelClass}>
-        Lien du produit
-        <input
-          type="url"
-          value={productUrl}
-          onChange={(event) => setProductUrl(event.target.value)}
-          placeholder="https://…"
-          className={fieldClass}
-        />
-      </label>
-
-      <fieldset className="flex flex-col gap-1.5">
-        <legend className={labelClass}>Alerte de stock bas</legend>
-        {(
-          [
-            [
-              "inherit",
-              inherited
-                ? `Comme la catégorie : alerte à ${inherited.threshold} ou moins (${inherited.path})`
-                : "Comme la catégorie (aucun seuil réglé pour l'instant)",
-            ],
-            ["none", "Pas d'alerte pour ce produit"],
-            ["custom", "Alerte quand il en reste"],
-          ] as const
-        ).map(([value, label]) => (
-          <label key={value} className="flex items-center gap-2.5 text-[13.5px] text-fg">
+    <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-4">
+      <fieldset disabled={locked} className="flex flex-col gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className={labelClass}>
+            Nom *
             <input
-              type="radio"
-              name="low-stock"
-              checked={alert === value}
-              onChange={() => setAlert(value)}
+              autoFocus
+              required
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Ex. Triple Black, Aiguille 3RL"
+              maxLength={120}
+              className={fieldClass}
             />
-            {label}
-            {value === "custom" && (
-              <>
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={alertValue}
-                  onFocus={() => setAlert("custom")}
-                  onChange={(event) => {
-                    setAlert("custom");
-                    setAlertValue(event.target.value);
-                  }}
-                  aria-label="Seuil d'alerte"
-                  className={`${inlineFieldClass} w-20`}
-                />
-                <span>{singleUse ? "ou moins" : "pièces ou moins"}</span>
-              </>
-            )}
           </label>
-        ))}
-        <p className="text-[12.5px] text-fg-muted">
-          Compté sur les lots non périmés de la fiche. Les seuils des catégories se règlent dans «
-          Gérer » les catégories.
-        </p>
+          <label className={labelClass}>
+            Marque
+            <input
+              value={brand}
+              onChange={(event) => setBrand(event.target.value)}
+              placeholder="Ex. Dynamic"
+              maxLength={120}
+              className={fieldClass}
+            />
+          </label>
+        </div>
+
+        <CategorySelect
+          categories={categories}
+          value={categoryId}
+          onChange={setCategoryId}
+          disabled={locked}
+        />
+
+        <TypeToggle singleUse={singleUse} onChange={setSingleUse} disabled={typeLocked} />
+
+        {!singleUse && (
+          <label className={labelClass}>
+            Durée après ouverture (mois)
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={months}
+              onChange={(event) => setMonths(event.target.value)}
+              placeholder="Ex. 12"
+              className={fieldClass}
+            />
+          </label>
+        )}
+
+        <label className={labelClass}>
+          Lien du produit
+          <input
+            type="url"
+            value={productUrl}
+            onChange={(event) => setProductUrl(event.target.value)}
+            placeholder="https://…"
+            className={fieldClass}
+          />
+        </label>
+
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className={labelClass}>Alerte de stock bas</legend>
+          {(
+            [
+              [
+                "inherit",
+                inherited
+                  ? `Comme la catégorie : alerte à ${inherited.threshold} ou moins (${inherited.path})`
+                  : "Comme la catégorie (aucun seuil réglé pour l'instant)",
+              ],
+              ["none", "Pas d'alerte pour ce produit"],
+              ["custom", "Alerte quand il en reste"],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value} className="flex items-center gap-2.5 text-[13.5px] text-fg">
+              <input
+                type="radio"
+                name="low-stock"
+                checked={alert === value}
+                onChange={() => setAlert(value)}
+              />
+              {label}
+              {value === "custom" && (
+                <>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={alertValue}
+                    onFocus={() => setAlert("custom")}
+                    onChange={(event) => {
+                      setAlert("custom");
+                      setAlertValue(event.target.value);
+                    }}
+                    aria-label="Seuil d'alerte"
+                    className={`${inlineFieldClass} w-20`}
+                  />
+                  <span>{singleUse ? "ou moins" : "pièces ou moins"}</span>
+                </>
+              )}
+            </label>
+          ))}
+          <p className="text-[12.5px] text-fg-muted">
+            Compté sur les lots non périmés de la fiche. Les seuils des catégories se règlent dans «
+            Gérer » les catégories.
+          </p>
+        </fieldset>
+
+        {sheet && (
+          <p className="text-[12.5px] text-fg-muted">
+            La durée après ouverture et le lien servent aux prochains lots. Les lots déjà reçus
+            gardent les leurs. La catégorie s&apos;applique à tous les lots de la fiche.
+          </p>
+        )}
+
+        {!sheet && candidates.length > 0 && (
+          <fieldset className={`${cardClass} flex flex-col gap-1 p-4`}>
+            <legend className="sr-only">Lots à rattacher</legend>
+            <p className="text-[13.5px] font-medium text-fg">Rattacher des lots sans fiche</p>
+            <p className="mb-2 text-[12.5px] text-fg-muted">
+              Leur nom, leur numéro et leur péremption ne changent pas. Ils sont rangés dans la
+              catégorie de la fiche.
+            </p>
+            <div className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
+              {candidates.map((lot) => (
+                <label
+                  key={lot.id}
+                  className="flex items-center gap-2.5 rounded-sm px-1 py-1.5 text-[13.5px] text-fg hover:bg-surface-2"
+                >
+                  <input
+                    type="checkbox"
+                    checked={chosen.includes(lot.id)}
+                    onChange={() => toggle(lot.id)}
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    {lot.name} · lot {lot.lotNumber}
+                  </span>
+                  <span className="shrink-0 text-[12px] text-fg-faint">
+                    exp. {formatIsoDate(lot.expirationDate)}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
+
+        {error && (
+          <p role="alert" className="text-[13px] text-danger">
+            {error}
+          </p>
+        )}
       </fieldset>
 
-      {sheet && (
-        <p className="text-[12.5px] text-fg-muted">
-          La durée après ouverture et le lien servent aux prochains lots. Les lots déjà reçus
-          gardent les leurs. La catégorie s&apos;applique à tous les lots de la fiche.
-        </p>
+      {!locked && (
+        <div className="flex items-center gap-3 pt-1">
+          <button type="submit" disabled={saving} className={btnPrimary}>
+            {saving ? "Enregistrement…" : sheet ? "Enregistrer" : "Ajouter"}
+          </button>
+          <button type="button" onClick={leave} className={btnGhost}>
+            Annuler
+          </button>
+        </div>
       )}
-
-      {!sheet && candidates.length > 0 && (
-        <fieldset className={`${cardClass} flex flex-col gap-1 p-4`}>
-          <legend className="sr-only">Lots à rattacher</legend>
-          <p className="text-[13.5px] font-medium text-fg">Rattacher des lots sans fiche</p>
-          <p className="mb-2 text-[12.5px] text-fg-muted">
-            Leur nom, leur numéro et leur péremption ne changent pas. Ils sont rangés dans la
-            catégorie de la fiche.
-          </p>
-          <div className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
-            {candidates.map((lot) => (
-              <label
-                key={lot.id}
-                className="flex items-center gap-2.5 rounded-sm px-1 py-1.5 text-[13.5px] text-fg hover:bg-surface-2"
-              >
-                <input
-                  type="checkbox"
-                  checked={chosen.includes(lot.id)}
-                  onChange={() => toggle(lot.id)}
-                />
-                <span className="min-w-0 flex-1 truncate">
-                  {lot.name} · lot {lot.lotNumber}
-                </span>
-                <span className="shrink-0 text-[12px] text-fg-faint">
-                  exp. {formatIsoDate(lot.expirationDate)}
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      )}
-
-      {error && (
-        <p role="alert" className="text-[13px] text-danger">
-          {error}
-        </p>
-      )}
-
-      <div className="flex items-center gap-3 pt-1">
-        <button type="submit" disabled={saving} className={btnPrimary}>
-          {saving ? "Enregistrement…" : sheet ? "Enregistrer" : "Créer la fiche"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void guardedLeave(() => onDone())}
-          className={btnGhost}
-        >
-          Annuler
-        </button>
-      </div>
     </form>
   );
 }

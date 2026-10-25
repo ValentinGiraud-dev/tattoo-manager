@@ -11,6 +11,7 @@ use super::categories::{self, CategoryInput};
 use super::clients::{self, ClientInput};
 use super::lots::{self, CreateLotInput};
 use super::paperwork::{self, HealthAnswers};
+use super::product_sheets::{self, ProductSheetInput};
 use super::sessions::{self, SessionInput};
 use crate::models::SessionStatus;
 
@@ -419,6 +420,46 @@ async fn deleting_a_category_is_logged_with_what_moved() {
         .find(|entry| entry.action == "DELETE")
         .unwrap();
     assert_eq!(deleted.label.as_deref(), Some("RL"));
+}
+
+#[tokio::test]
+async fn product_history_filters_one_sheet() {
+    let pool = db().await;
+    let sheet = |name: &str| ProductSheetInput {
+        name: name.into(),
+        brand: None,
+        category_id: None,
+        single_use: true,
+        after_opening_months: None,
+        product_url: None,
+        low_stock_threshold: None,
+    };
+    let red = product_sheets::create_sheet(&pool, sheet("Encre rouge"), vec![])
+        .await
+        .unwrap();
+    let black = product_sheets::create_sheet(&pool, sheet("Encre noire"), vec![])
+        .await
+        .unwrap();
+
+    let page = audit::list_entries(
+        &pool,
+        AuditQuery {
+            entity: Some("product".into()),
+            entity_id: Some(red.id.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(!page.entries.is_empty());
+    assert!(page.entries.iter().all(|entry| {
+        entry.entity == "product" && entry.entity_id.as_deref() == Some(red.id.as_str())
+    }));
+    assert!(page
+        .entries
+        .iter()
+        .all(|entry| entry.entity_id.as_deref() != Some(black.id.as_str())));
 }
 
 /// Garde-fou pour les futures migrations : toute table métier est journalisée,

@@ -21,7 +21,7 @@ test("un lot reçu avant les fiches est signalé, puis rattaché à sa nouvelle 
   await expect(page.getByLabel("Nom *")).toHaveValue("Encre rouge");
   await expect(page.getByRole("checkbox", { name: /Encre rouge · lot ER-1/ })).toBeChecked();
   await page.getByLabel("Marque").fill("Dynamic");
-  await page.getByRole("button", { name: "Créer la fiche" }).click();
+  await page.getByRole("button", { name: "Ajouter", exact: true }).click();
   await expect(page.getByRole("list", { name: "Notifications" })).toContainText(
     "Fiche créée · 1 lot rattaché",
   );
@@ -33,16 +33,16 @@ test("un lot reçu avant les fiches est signalé, puis rattaché à sa nouvelle 
 
   await page.getByRole("button", { name: "← Produits" }).click();
   await expect(page.getByRole("heading", { name: /sans fiche produit/ })).toBeHidden();
-  await expect(page.getByRole("button", { name: /Dynamic Encre rouge/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Dynamic Encre rouge/ })).toBeVisible();
 });
 
 test("recevoir un lot d'un produit sans fiche : la fiche se crée en chemin", async ({ page }) => {
   await openProducts(page);
-  await page.getByRole("button", { name: "Recevoir un lot" }).click();
+  await page.getByRole("button", { name: "Ajouter un lot" }).click();
   await page.getByRole("button", { name: "Créer une fiche produit" }).click();
 
   await page.getByLabel("Nom *").fill("Gants nitrile M");
-  await page.getByRole("button", { name: "Créer la fiche" }).click();
+  await page.getByRole("button", { name: "Ajouter", exact: true }).click();
 
   // Retour à la réception, avec la nouvelle fiche choisie.
   await expect(page.getByRole("heading", { name: "Réception d'un lot" })).toBeVisible();

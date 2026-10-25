@@ -14,12 +14,15 @@ import { EditLotForm } from "./lot-edit-form";
  */
 function NewLotForm({
   sheetId: initialSheetId = null,
+  fixedSheet,
   onNewSheet,
   onDone,
 }: {
   sheetId?: string | null;
+  /** Réception sur la fiche : la fiche est déjà choisie, sans page autour. */
+  fixedSheet?: ProductSheet;
   /** Ouvre la création d'une fiche (puis revient ici). */
-  onNewSheet: () => void;
+  onNewSheet?: () => void;
   onDone: (saved?: LotSummary) => void;
 }) {
   const { create, find, listAllSheets } = useProductsStore();
@@ -36,9 +39,10 @@ function NewLotForm({
   const [saving, setSaving] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const currentYear = new Date().getFullYear();
-  const sheet = sheets?.find((candidate) => candidate.id === sheetId) ?? null;
+  const sheet = fixedSheet ?? sheets?.find((candidate) => candidate.id === sheetId) ?? null;
 
   useEffect(() => {
+    if (fixedSheet) return;
     let cancelled = false;
     listAllSheets()
       .then((list) => {
@@ -50,7 +54,7 @@ function NewLotForm({
     return () => {
       cancelled = true;
     };
-  }, [listAllSheets]);
+  }, [fixedSheet, listAllSheets]);
 
   const dirty =
     !submitted &&
@@ -104,7 +108,15 @@ function NewLotForm({
         categoryId: sheet.categoryId,
         productId: sheet.id,
       });
-      setSubmitted(true);
+      if (fixedSheet) {
+        setLotNumber("");
+        setExisting(null);
+        setExpirationDate(null);
+        setCreationDate(null);
+        setQuantity("1");
+      } else {
+        setSubmitted(true);
+      }
       toast.success(existing ? "Quantité ajoutée au lot" : "Lot ajouté au stock");
       onDone(saved);
     } catch (submitError) {
@@ -121,17 +133,19 @@ function NewLotForm({
   return (
     <form
       onSubmit={(event) => void submit(event)}
-      className="mx-auto flex max-w-xl flex-col gap-4 px-8 py-10"
+      className={
+        fixedSheet ? "flex flex-col gap-4" : "mx-auto flex max-w-xl flex-col gap-4 px-8 py-10"
+      }
     >
-      <FormHeader title="Réception d'un lot" onBack={leave} />
+      {!fixedSheet && <FormHeader title="Réception d'un lot" onBack={leave} />}
 
-      {loadError && (
+      {!fixedSheet && loadError && (
         <p role="alert" className="text-[13px] text-danger">
           {loadError}
         </p>
       )}
 
-      {sheets && sheets.length === 0 ? (
+      {!fixedSheet && sheets && sheets.length === 0 ? (
         <div className="rounded-lg border border-line bg-surface px-5 py-6 text-center">
           <p className="text-[14px] text-fg-muted">
             Il faut d&apos;abord une fiche produit : elle porte le nom, la marque, le type et la
@@ -143,42 +157,44 @@ function NewLotForm({
         </div>
       ) : (
         <>
-          <div>
-            <label className={labelClass}>
-              Fiche produit *
-              <select
-                required
-                value={sheetId}
-                onChange={(event) => {
-                  const next = sheets?.find((s) => s.id === event.target.value) ?? null;
-                  setSheetId(event.target.value);
-                  void lookup(lotNumber, next);
-                }}
-                disabled={sheets === null}
-                className={fieldClass}
-              >
-                <option value="">{sheets === null ? "Chargement…" : "Choisir…"}</option>
-                {sheets?.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.displayName}
-                    {option.categoryPath ? ` — ${option.categoryPath}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="mt-1.5 flex items-center justify-between gap-3 text-[12.5px] text-fg-muted">
-              <span>
-                {sheet ? sheetTypeLabel(sheet) : "Le type et la catégorie viennent de la fiche."}
-              </span>
-              <button
-                type="button"
-                onClick={onNewSheet}
-                className="shrink-0 text-fg-muted underline-offset-2 hover:text-fg hover:underline"
-              >
-                Nouvelle fiche produit
-              </button>
+          {!fixedSheet && (
+            <div>
+              <label className={labelClass}>
+                Fiche produit *
+                <select
+                  required
+                  value={sheetId}
+                  onChange={(event) => {
+                    const next = sheets?.find((s) => s.id === event.target.value) ?? null;
+                    setSheetId(event.target.value);
+                    void lookup(lotNumber, next);
+                  }}
+                  disabled={sheets === null}
+                  className={fieldClass}
+                >
+                  <option value="">{sheets === null ? "Chargement…" : "Choisir…"}</option>
+                  {sheets?.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.displayName}
+                      {option.categoryPath ? ` — ${option.categoryPath}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="mt-1.5 flex items-center justify-between gap-3 text-[12.5px] text-fg-muted">
+                <span>
+                  {sheet ? sheetTypeLabel(sheet) : "Le type et la catégorie viennent de la fiche."}
+                </span>
+                <button
+                  type="button"
+                  onClick={onNewSheet}
+                  className="shrink-0 text-fg-muted underline-offset-2 hover:text-fg hover:underline"
+                >
+                  Nouvelle fiche produit
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           <label className={labelClass}>
             Numéro de lot *
@@ -260,10 +276,29 @@ function NewLotForm({
       )}
 
       <div className="flex items-center gap-3 pt-1">
-        <button type="submit" disabled={saving || !sheets?.length} className={btnPrimary}>
+        <button
+          type="submit"
+          disabled={saving || (!fixedSheet && !sheets?.length)}
+          className={btnPrimary}
+        >
           {saving ? "Enregistrement…" : "Enregistrer la réception"}
         </button>
-        <button type="button" onClick={leave} className={btnGhost}>
+        <button
+          type="button"
+          onClick={
+            fixedSheet
+              ? () => {
+                  setLotNumber("");
+                  setExisting(null);
+                  setExpirationDate(null);
+                  setCreationDate(null);
+                  setQuantity("1");
+                  setError(null);
+                }
+              : leave
+          }
+          className={btnGhost}
+        >
           Annuler
         </button>
       </div>
@@ -274,18 +309,26 @@ function NewLotForm({
 export function LotForm({
   lot,
   sheetId,
+  fixedSheet,
   onNewSheet,
   onDone,
 }: {
   lot?: LotSummary;
   /** Fiche proposée pour une réception (celle qu'on regarde). */
   sheetId?: string | null;
-  onNewSheet: () => void;
+  /** Réception déjà rattachée à une fiche, sans en-tête de page. */
+  fixedSheet?: ProductSheet;
+  onNewSheet?: () => void;
   onDone: (saved?: LotSummary) => void;
 }) {
   return lot ? (
     <EditLotForm lot={lot} onDone={onDone} />
   ) : (
-    <NewLotForm sheetId={sheetId} onNewSheet={onNewSheet} onDone={onDone} />
+    <NewLotForm
+      sheetId={fixedSheet?.id ?? sheetId}
+      fixedSheet={fixedSheet}
+      onNewSheet={onNewSheet}
+      onDone={onDone}
+    />
   );
 }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatIsoDate, formatRelative, isOlderThan } from "./format";
+import {
+  formatBytes,
+  formatIsoDate,
+  formatRelative,
+  formatWeekdayDate,
+  isOlderThan,
+} from "./format";
 
 const plain = (text: string) => text.replace(/[\u00a0\u202f]/g, " ");
 
@@ -11,6 +17,16 @@ describe("formatIsoDate", () => {
 
   it("laisse passer une valeur inattendue", () => {
     expect(formatIsoDate("bientôt")).toBe("bientôt");
+  });
+});
+
+describe("formatWeekdayDate", () => {
+  it("écrit le jour et la date en heure locale, avec une majuscule", () => {
+    expect(formatWeekdayDate("2026-10-21T12:00:00")).toBe("Mercredi 21 octobre 2026");
+  });
+
+  it("laisse passer une valeur inattendue", () => {
+    expect(formatWeekdayDate("bientôt")).toBe("bientôt");
   });
 });
 

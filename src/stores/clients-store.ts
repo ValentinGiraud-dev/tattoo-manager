@@ -17,6 +17,11 @@ export interface Client {
   archivedAt: string | null;
 }
 
+/** Client tel que la liste le renvoie, avec le nombre de séances. */
+export interface ClientListItem extends Client {
+  sessionCount: number;
+}
+
 export interface ClientInput {
   firstName: string;
   lastName: string;
@@ -47,14 +52,14 @@ export interface ClientArchivePreview {
 }
 
 interface ClientsState {
-  clients: Client[];
+  clients: ClientListItem[];
   search: string;
   showArchived: boolean;
   loading: boolean;
   error: string | null;
   load: (search?: string, archived?: boolean) => Promise<void>;
   /** Clients actifs, sans toucher à la liste affichée. */
-  listActive: () => Promise<Client[]>;
+  listActive: () => Promise<ClientListItem[]>;
   create: (input: ClientInput) => Promise<Client>;
   update: (id: string, input: ClientInput) => Promise<Client>;
   get: (id: string) => Promise<Client>;
@@ -78,13 +83,13 @@ export const useClientsStore = create<ClientsState>((set, get) => ({
   load: async (search = get().search, archived = get().showArchived) => {
     set({ loading: true, search, showArchived: archived });
     try {
-      const clients = await invoke<Client[]>("list_clients", { search, archived });
+      const clients = await invoke<ClientListItem[]>("list_clients", { search, archived });
       set({ clients, loading: false, error: null });
     } catch (error) {
       set({ loading: false, error: String(error) });
     }
   },
-  listActive: () => invoke<Client[]>("list_clients", { search: null, archived: false }),
+  listActive: () => invoke<ClientListItem[]>("list_clients", { search: null, archived: false }),
   create: async (input) => {
     const client = await invoke<Client>("create_client", { input });
     await get().load();

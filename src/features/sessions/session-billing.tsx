@@ -342,7 +342,7 @@ export function SessionBilling({
               onClick={() => setAdding("payment")}
               className={btnPrimary}
             >
-              Encaisser un paiement
+              Encaissement
             </button>
             <button
               type="button"
@@ -350,7 +350,7 @@ export function SessionBilling({
               onClick={() => setAdding("deposit")}
               className={btnGhost}
             >
-              Enregistrer un acompte
+              Acompte
             </button>
           </div>
         ))}

@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { btnGhost, btnPrimary, fieldClass } from "../../components/styles";
+import { useGuardedLeave } from "../../components/unsaved-changes";
 import { useConfirm } from "../../components/use-confirm";
-import { formatIsoDate, formatTimestamp } from "../../lib/format";
-import { formatTimeRange, SESSION_STATUS_LABELS } from "../../lib/labels";
-import { formatEuros } from "../../lib/money";
+import { formatIsoDate, formatTimestamp, formatWeekdayDate } from "../../lib/format";
 import type { FormKind, Paperwork } from "../../stores/paperwork-store";
 import {
   useProductsStore,
@@ -11,7 +10,6 @@ import {
   type SessionUsageItem,
 } from "../../stores/products-store";
 import {
-  sessionToInput,
   useSessionsStore,
   type SessionListItem,
   type SessionStatus,
@@ -24,19 +22,139 @@ import { lowStockAfterLink } from "../../lib/low-stock";
 import { AuditHistory } from "../journal/audit-history";
 import { SessionForm, type SessionDraft } from "./session-form";
 import { SessionPaperwork } from "./session-paperwork";
-import { confirmClosingStatus, settleHeldDeposits } from "./session-status-flow";
 import { StatusBadge } from "./session-status";
 import { toast } from "../../stores/toast-store";
 import { BackButton } from "../../components/back-button";
+import { DataTable } from "../../components/data-table";
 import { ArchiveBanner, ArchiveFilter, ArchiveMention } from "../../components/archive-controls";
 
-type View =
-  | { kind: "list" }
-  | { kind: "form"; session?: SessionListItem; draft?: SessionDraft }
-  | { kind: "detail"; session: SessionListItem };
+type View = { kind: "list" } | { kind: "editor"; session?: SessionListItem; draft?: SessionDraft };
 
 function clientName(session: SessionListItem) {
   return `${session.clientFirstName} ${session.clientLastName}`;
+}
+
+function blank(value: string | null): string {
+  const text = value?.trim() ?? "";
+  return text === "" ? "—" : text;
+}
+
+function sessionWhen(session: SessionListItem): string {
+  const date = formatIsoDate(session.date);
+  return session.startTime ? `${date} à ${session.startTime}` : date;
+}
+
+function latestUpdatedAt(sessions: SessionListItem[]): string | null {
+  let latest: string | null = null;
+  let latestTime = Number.NEGATIVE_INFINITY;
+  for (const session of sessions) {
+    const utc = /[zZ]|[+-]\d{2}:\d{2}$/.test(session.updatedAt)
+      ? session.updatedAt
+      : `${session.updatedAt}Z`;
+    const time = new Date(utc).getTime();
+    if (!Number.isNaN(time) && time > latestTime) {
+      latestTime = time;
+      latest = session.updatedAt;
+    }
+  }
+  return latest;
+}
+
+/** Filtres de la liste, dans l'ordre de la capture. Les autres statuts restent dans la liste complète. */
+const STATUS_FILTERS: { status: SessionStatus; label: string }[] = [
+  { status: "PLANNED", label: "Planifier" },
+  { status: "COMPLETED", label: "Terminer" },
+  { status: "CANCELLED", label: "Annuler" },
+];
+
+function StatusFilters({
+  selected,
+  onToggle,
+}: {
+  selected: readonly SessionStatus[];
+  onToggle: (status: SessionStatus) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2" role="group" aria-label="Filtrer par statut">
+      {STATUS_FILTERS.map((filter) => {
+        const pressed = selected.includes(filter.status);
+        return (
+          <button
+            key={filter.status}
+            type="button"
+            aria-pressed={pressed}
+            onClick={() => onToggle(filter.status)}
+            className={
+              pressed
+                ? "rounded-pill border border-fg bg-surface-3 px-3 py-1 text-[13px] font-medium text-fg"
+                : "rounded-pill border border-line-strong px-3 py-1 text-[13px] text-fg-muted hover:text-fg"
+            }
+          >
+            {filter.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SessionTable({
+  sessions,
+  pageResetKey,
+  onOpen,
+  onEdit,
+}: {
+  sessions: SessionListItem[];
+  pageResetKey: string;
+  onOpen: (session: SessionListItem) => void;
+  onEdit: (session: SessionListItem) => void;
+}) {
+  return (
+    <DataTable
+      label="Séances"
+      rows={sessions}
+      rowKey={(session) => session.id}
+      rowLabel={(session) => clientName(session)}
+      pageResetKey={pageResetKey}
+      onRowClick={onOpen}
+      rowActions={(session) => [
+        { id: "open", label: "Ouvrir", onSelect: () => onOpen(session) },
+        { id: "edit", label: "Modifier", onSelect: () => onEdit(session) },
+      ]}
+      columns={[
+        {
+          id: "client",
+          header: "Nom du client",
+          className: "w-[22%]",
+          cell: (session) => <span className="text-fg">{clientName(session)}</span>,
+        },
+        {
+          id: "when",
+          header: "Date de la séance",
+          className: "w-[22%]",
+          cell: (session) => sessionWhen(session),
+        },
+        {
+          id: "area",
+          header: "Zone",
+          className: "w-[20%]",
+          cell: (session) => blank(session.bodyArea),
+        },
+        {
+          id: "created",
+          header: "Créé le",
+          className: "w-[18%]",
+          cell: (session) => formatTimestamp(session.createdAt),
+        },
+        {
+          id: "status",
+          header: "Statut",
+          className: "w-[14%]",
+          cell: (session) => <StatusBadge status={session.status} />,
+        },
+      ]}
+    />
+  );
 }
 
 function SessionProducts({ session, readOnly }: { session: SessionListItem; readOnly?: boolean }) {
@@ -356,36 +474,36 @@ function SessionProducts({ session, readOnly }: { session: SessionListItem; read
   );
 }
 
-function SessionDetail({
+function sessionTitle(session: SessionListItem): string {
+  return session.title ?? session.projectTitle ?? session.bodyArea ?? "Séance";
+}
+
+function SessionEditor({
   session,
-  onEdit,
+  draft,
   onBack,
-  onRestored,
+  onSaved,
 }: {
-  session: SessionListItem;
-  onEdit: () => void;
+  session?: SessionListItem;
+  draft?: SessionDraft;
   onBack: () => void;
-  onRestored: (session: SessionListItem) => void;
+  onSaved: (session: SessionListItem) => void;
 }) {
   const [form, setForm] = useState<{ kind: FormKind; paperwork: Paperwork } | null>(null);
   const [paperworkVersion, setPaperworkVersion] = useState(0);
   const openClient = useUIStore((state) => state.openClient);
-  const { previewRemoval, remove, archive, restore, get, update, setAftercareExplained } =
+  const { previewRemoval, remove, archive, restore, get, setAftercareExplained } =
     useSessionsStore();
   const confirm = useConfirm();
+  const guardedLeave = useGuardedLeave();
   const [busy, setBusy] = useState(false);
   const [aftercareBusy, setAftercareBusy] = useState(false);
-  const [pendingStatus, setPendingStatus] = useState<{
-    id: string;
-    status: SessionStatus;
-  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [action, setAction] = useState<"delete" | "archive" | null>(null);
-  const locked = session.archivedAt !== null || session.clientArchived;
-  const statusValue = pendingStatus?.id === session.id ? pendingStatus.status : session.status;
+  const locked = session != null && (session.archivedAt !== null || session.clientArchived);
 
   useEffect(() => {
-    if (locked) return;
+    if (!session || locked) return;
     let cancelled = false;
     previewRemoval(session.id)
       .then((preview) => {
@@ -397,9 +515,10 @@ function SessionDetail({
     return () => {
       cancelled = true;
     };
-  }, [locked, previewRemoval, session.id]);
+  }, [locked, previewRemoval, session]);
 
   async function removeOrArchive() {
+    if (!session) return;
     setError(null);
     let preview;
     try {
@@ -449,51 +568,18 @@ function SessionDetail({
     }
   }
 
-  async function changeStatus(next: SessionStatus) {
-    if (locked || next === session.status) return;
-    setPendingStatus({ id: session.id, status: next });
-    if (next === "CANCELLED" || next === "NO_SHOW") {
-      const ok = await confirmClosingStatus(
-        confirm,
-        next,
-        `${session.clientFirstName} ${session.clientLastName}`,
-        session.date,
-        session.startTime,
-      );
-      if (!ok) {
-        setPendingStatus(null);
-        return;
-      }
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const saved = await update(session.id, sessionToInput(session, next));
-      if (saved.status === "CANCELLED" || saved.status === "NO_SHOW") {
-        await settleHeldDeposits(confirm, saved);
-      }
-      toast.success("Statut mis à jour");
-      setPendingStatus(null);
-      onRestored(saved);
-    } catch (statusError) {
-      setPendingStatus(null);
-      setError(String(statusError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function setAftercare(explained: boolean) {
+    if (!session) return;
     const previous = session;
     setAftercareBusy(true);
-    onRestored({ ...session, aftercareExplained: explained });
+    onSaved({ ...session, aftercareExplained: explained });
     setError(null);
     try {
       const saved = await setAftercareExplained(session.id, explained);
       toast.success(explained ? "Conseils d’hygiène notés" : "Case d’hygiène retirée");
-      onRestored(saved);
+      onSaved(saved);
     } catch (aftercareError) {
-      onRestored(previous);
+      onSaved(previous);
       setError(String(aftercareError));
     } finally {
       setAftercareBusy(false);
@@ -501,6 +587,7 @@ function SessionDetail({
   }
 
   async function unarchive() {
+    if (!session) return;
     const ok = await confirm({
       title: "Désarchiver cette séance ?",
       body: "Elle revient dans le planning et les listes.",
@@ -513,7 +600,7 @@ function SessionDetail({
       await restore(session.id);
       toast.success("Séance désarchivée");
       const fresh = await get(session.id);
-      onRestored(fresh);
+      onSaved(fresh);
     } catch (restoreError) {
       setError(String(restoreError));
     } finally {
@@ -521,7 +608,7 @@ function SessionDetail({
     }
   }
 
-  if (form) {
+  if (form && session) {
     const close = () => {
       setForm(null);
       setPaperworkVersion((version) => version + 1);
@@ -533,115 +620,40 @@ function SessionDetail({
     );
   }
 
-  const rows: [string, string | null][] = [
-    ["Client", clientName(session)],
-    ["Date", formatIsoDate(session.date)],
-    ["Horaire", formatTimeRange(session.startTime, session.durationMinutes)],
-    ["Statut", SESSION_STATUS_LABELS[session.status]],
-    ["Titre", session.title],
-    ["Projet", session.projectTitle],
-    ["Prix", session.priceCents === null ? null : formatEuros(session.priceCents)],
-    ["Zone", session.bodyArea],
-    ["Description", session.description],
-    ["Notes", session.notes],
-    ["Créé le", formatTimestamp(session.createdAt)],
-    ["Modifié le", formatTimestamp(session.updatedAt)],
-  ];
-
   return (
-    <div className="mx-auto flex max-w-xl flex-col gap-5 px-8 py-10">
-      <BackButton listLabel="Séances" onList={onBack} />
-      {session.archivedAt && (
+    <div className="mx-auto flex max-w-6xl flex-col gap-8 px-8 py-10">
+      <div>
+        <h1 className="text-[16px] font-medium tracking-tight">
+          {session ? sessionTitle(session) : "Nouvelle séance"}
+        </h1>
+        {session && (
+          <button
+            type="button"
+            onClick={() => openClient(session.clientId)}
+            className="mt-1 text-[13px] text-fg-muted underline-offset-2 hover:text-fg hover:underline"
+          >
+            {clientName(session)}
+            {session.clientArchived && <ArchiveMention>client archivé</ArchiveMention>}
+          </button>
+        )}
+        <div className="mt-1">
+          <BackButton listLabel="Séances" onList={() => void guardedLeave(onBack)} />
+        </div>
+      </div>
+
+      {session?.archivedAt && (
         <ArchiveBanner>
           Séance archivée. Elle est en lecture seule et absente du planning. Désarchive-la pour la
           modifier.
         </ArchiveBanner>
       )}
-      {!session.archivedAt && session.clientArchived && (
+      {session && !session.archivedAt && session.clientArchived && (
         <ArchiveBanner>
           Client archivé. Cette séance est en lecture seule. Désarchive le client pour la modifier.
         </ArchiveBanner>
       )}
       {error && <p className="text-[13px] text-danger">{error}</p>}
-      <div className="flex items-start gap-4">
-        <div className="min-w-0 flex-1">
-          <label className="mb-2 block w-fit text-[12px] text-fg-faint">
-            Statut
-            <select
-              aria-label="Statut de la séance"
-              value={statusValue}
-              disabled={locked || busy}
-              onChange={(event) => void changeStatus(event.target.value as SessionStatus)}
-              className="mt-1 block rounded-md border border-line-strong bg-bg px-2.5 py-1 text-[13px] text-fg outline-none focus:border-accent disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-fg-muted"
-            >
-              {(Object.keys(SESSION_STATUS_LABELS) as SessionStatus[]).map((value) => (
-                <option key={value} value={value}>
-                  {SESSION_STATUS_LABELS[value]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <h1 className="text-[24px] font-medium tracking-tight">
-            {session.title ?? session.projectTitle ?? session.bodyArea ?? "Séance"}
-          </h1>
-          <p className="mt-1 text-[13px] text-fg-muted">
-            <button
-              type="button"
-              onClick={() => openClient(session.clientId)}
-              className="underline-offset-2 hover:text-fg hover:underline"
-            >
-              {clientName(session)}
-              {session.clientArchived && <ArchiveMention>client archivé</ArchiveMention>}
-            </button>{" "}
-            · {formatIsoDate(session.date)}
-            {session.startTime ? ` · ${session.startTime}` : ""}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {session.archivedAt && !session.clientArchived ? (
-            <button
-              type="button"
-              onClick={() => void unarchive()}
-              disabled={busy}
-              className={btnPrimary}
-            >
-              {busy ? "Désarchivage…" : "Désarchiver"}
-            </button>
-          ) : (
-            !locked && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => void removeOrArchive()}
-                  disabled={busy}
-                  className={btnGhost}
-                >
-                  <span className="text-danger">
-                    {busy ? "En cours…" : action === "delete" ? "Supprimer" : "Archiver"}
-                  </span>
-                </button>
-                <button type="button" onClick={onEdit} className={btnPrimary}>
-                  Modifier
-                </button>
-              </>
-            )
-          )}
-        </div>
-      </div>
-      <dl className="grid gap-3 rounded-lg border border-line bg-surface p-4">
-        {rows.map(([label, value]) => (
-          <div key={label} className="grid grid-cols-[9rem_1fr] gap-3 text-[13.5px]">
-            <dt className="text-fg-faint">{label}</dt>
-            <dd className="whitespace-pre-wrap text-fg">
-              {value ?? "—"}
-              {label === "Projet" && session.projectArchived && (
-                <ArchiveMention>projet archivé</ArchiveMention>
-              )}
-            </dd>
-          </div>
-        ))}
-      </dl>
-      {session.clientNoShowCount > 0 && (
+      {session && session.clientNoShowCount > 0 && (
         <p
           role="note"
           className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[13px] text-fg"
@@ -652,18 +664,72 @@ function SessionDetail({
           {session.clientNoShowCount > 1 ? "s" : ""}.
         </p>
       )}
-      <SessionBilling session={session} readOnly={locked} />
-      <SessionPaperwork
-        key={`${paperworkVersion}-${session.status}`}
-        sessionId={session.id}
-        readOnly={locked}
-        aftercareExplained={session.aftercareExplained}
-        aftercareBusy={aftercareBusy}
-        onAftercareExplained={(explained) => void setAftercare(explained)}
-        onOpenForm={(kind, paperwork) => setForm({ kind, paperwork })}
-      />
-      <SessionProducts session={session} readOnly={locked} />
-      <AuditHistory key={session.id} target={{ kind: "session", id: session.id }} />
+
+      <div className="grid items-start gap-10 lg:grid-cols-2">
+        <div className="flex flex-col gap-8">
+          <SessionForm
+            key={session?.id ?? "new"}
+            session={session}
+            draft={draft}
+            locked={locked}
+            onDone={(saved) => (saved ? onSaved(saved) : onBack())}
+          />
+          {session && (
+            <SessionPaperwork
+              key={`${paperworkVersion}-${session.status}`}
+              sessionId={session.id}
+              readOnly={locked}
+              aftercareExplained={session.aftercareExplained}
+              aftercareBusy={aftercareBusy}
+              onAftercareExplained={(explained) => void setAftercare(explained)}
+              onOpenForm={(kind, paperwork) => setForm({ kind, paperwork })}
+            />
+          )}
+        </div>
+        <div className="flex flex-col gap-8">
+          {session ? (
+            <>
+              <SessionBilling session={session} readOnly={locked} />
+              <SessionProducts session={session} readOnly={locked} />
+            </>
+          ) : (
+            <p className="text-[13px] text-fg-muted">
+              Enregistre la séance pour encaisser, lier des produits et remplir les documents.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {session && (
+        <div className="flex flex-col gap-8 border-t border-line pt-8">
+          <AuditHistory key={session.id} target={{ kind: "session", id: session.id }} />
+          <div>
+            {session.archivedAt && !session.clientArchived ? (
+              <button
+                type="button"
+                onClick={() => void unarchive()}
+                disabled={busy}
+                className={btnPrimary}
+              >
+                {busy ? "Désarchivage…" : "Désarchiver"}
+              </button>
+            ) : (
+              !locked && (
+                <button
+                  type="button"
+                  onClick={() => void removeOrArchive()}
+                  disabled={busy}
+                  className={btnGhost}
+                >
+                  <span className="text-danger">
+                    {busy ? "En cours…" : action === "delete" ? "Supprimer" : "Archiver"}
+                  </span>
+                </button>
+              )
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -679,10 +745,11 @@ export default function SessionsPage() {
     get: getSession,
   } = useSessionsStore();
   const [view, setView] = useState<View>({ kind: "list" });
+  const [statuses, setStatuses] = useState<SessionStatus[]>([]);
   const sessionIntent = useUIStore((state) => state.sessionIntent);
   const takeSessionIntent = useUIStore((state) => state.takeSessionIntent);
   const setDetail = useUIStore((state) => state.setDetail);
-  const detailId = view.kind === "detail" ? view.session.id : null;
+  const detailId = view.kind === "editor" ? (view.session?.id ?? null) : null;
 
   // Fiche ouverte : retenue pour pouvoir y revenir depuis un autre écran.
   useEffect(() => {
@@ -700,7 +767,7 @@ export default function SessionsPage() {
     setSeenIntent(sessionIntent);
     if (sessionIntent?.kind === "new") {
       const { date, startTime, clientId, projectId } = sessionIntent;
-      setView({ kind: "form", draft: { date, startTime, clientId, projectId } });
+      setView({ kind: "editor", draft: { date, startTime, clientId, projectId } });
     }
   }
 
@@ -710,126 +777,107 @@ export default function SessionsPage() {
     const intent = takeSessionIntent();
     if (!intent || intent.kind === "new") return;
     void getSession(intent.sessionId)
-      .then((session) => setView({ kind: "detail", session }))
+      .then((session) => setView({ kind: "editor", session }))
       .catch(() => setView({ kind: "list" }));
   }, [sessionIntent, takeSessionIntent, getSession]);
 
-  if (view.kind === "form") {
+  if (view.kind === "editor") {
     return (
-      <SessionForm
+      <SessionEditor
+        key={view.session?.id ?? "new"}
         session={view.session}
         draft={view.draft}
-        onDone={(saved) =>
-          setView(
-            saved
-              ? { kind: "detail", session: saved }
-              : view.session
-                ? { kind: "detail", session: view.session }
-                : { kind: "list" },
-          )
-        }
+        onBack={() => setView({ kind: "list" })}
+        onSaved={(session) => setView({ kind: "editor", session })}
       />
     );
   }
 
-  if (view.kind === "detail") {
-    return (
-      <SessionDetail
-        session={view.session}
-        onEdit={() => {
-          // Recharger : des produits ont pu être liés depuis l'ouverture de la fiche.
-          const current = view.session;
-          void getSession(current.id)
-            .then((fresh) => setView({ kind: "form", session: fresh }))
-            .catch(() => setView({ kind: "form", session: current }));
-        }}
-        onBack={() => setView({ kind: "list" })}
-        onRestored={(session) => setView({ kind: "detail", session })}
-      />
-    );
-  }
+  const visible =
+    statuses.length === 0
+      ? sessions
+      : sessions.filter((session) => statuses.includes(session.status));
+  const updatedAt = latestUpdatedAt(sessions);
+  const subtitle =
+    loading && sessions.length === 0
+      ? "Chargement…"
+      : updatedAt
+        ? `Dernière mise à jour - ${formatWeekdayDate(updatedAt)}`
+        : null;
+  const filtered = search !== "" || statuses.length > 0;
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-10">
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-8 py-10">
+      <div>
+        <h1 className="text-[16px] font-medium tracking-tight">Mes séances</h1>
+        {subtitle ? <p className="mt-0.5 text-[12.5px] text-fg-faint">{subtitle}</p> : null}
+      </div>
+
       <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-[24px] font-medium tracking-tight">Séances</h1>
-          <p className="mt-1 text-[13px] text-fg-muted">
-            {loading
-              ? "Chargement…"
-              : `${sessions.length} séance${sessions.length === 1 ? "" : "s"}`}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <input
+            type="search"
+            aria-label="Rechercher une séance"
+            placeholder="Recherche"
+            value={search}
+            onChange={(event) => void load(event.target.value)}
+            className="w-64 rounded-md border border-line-strong bg-bg px-3 py-2 text-[14px] text-fg transition-[border-color,box-shadow] outline-none placeholder:text-fg-faint focus:border-accent"
+          />
+          <StatusFilters
+            selected={statuses}
+            onToggle={(status) =>
+              setStatuses((current) =>
+                current.includes(status)
+                  ? current.filter((item) => item !== status)
+                  : [...current, status],
+              )
+            }
+          />
           <ArchiveFilter
             archived={showArchived}
             onChange={(archived) => void load(search, archived)}
           />
-          {!showArchived && (
-            <button type="button" onClick={() => setView({ kind: "form" })} className={btnPrimary}>
-              Nouvelle séance
-            </button>
-          )}
         </div>
+        {!showArchived && (
+          <button
+            type="button"
+            onClick={() => setView({ kind: "editor" })}
+            className={`${btnPrimary} shrink-0`}
+          >
+            Ajouter une séance
+          </button>
+        )}
       </div>
-
-      <input
-        type="search"
-        placeholder="Rechercher (client, zone, notes)…"
-        value={search}
-        onChange={(event) => void load(event.target.value)}
-        className={fieldClass}
-      />
 
       {error && <p className="text-[13px] text-danger">{error}</p>}
 
-      {!loading && sessions.length === 0 ? (
+      {!loading && visible.length === 0 ? (
         <div className="rounded-lg border border-line bg-surface px-5 py-10 text-center">
           <p className="text-[14px] text-fg-muted">
-            {search
+            {filtered
               ? "Aucun résultat."
               : showArchived
                 ? "Aucune séance archivée."
                 : "Aucune séance pour le moment."}
           </p>
-          {!search && !showArchived && (
+          {!filtered && !showArchived && (
             <button
               type="button"
-              onClick={() => setView({ kind: "form" })}
+              onClick={() => setView({ kind: "editor" })}
               className={`${btnGhost} mt-4`}
             >
               Créer la première séance
             </button>
           )}
         </div>
-      ) : (
-        <ul className="overflow-hidden rounded-lg border border-line bg-surface">
-          {sessions.map((session, index) => (
-            <li key={session.id} className={index > 0 ? "border-t border-line" : undefined}>
-              <button
-                type="button"
-                onClick={() => setView({ kind: "detail", session })}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="truncate text-[14px] font-medium">{clientName(session)}</span>
-                    <StatusBadge status={session.status} />
-                  </span>
-                  <span className="mt-0.5 block truncate text-[12.5px] text-fg-muted">
-                    {formatIsoDate(session.date)}
-                    {session.startTime ? ` · ${session.startTime}` : ""}
-                    {session.title ? ` · ${session.title}` : ""}
-                    {session.projectTitle ? ` · ${session.projectTitle}` : ""}
-                    {session.projectArchived ? " · projet archivé" : ""}
-                    {session.bodyArea ? ` · ${session.bodyArea}` : ""}
-                  </span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      ) : visible.length > 0 ? (
+        <SessionTable
+          sessions={visible}
+          pageResetKey={`${search}\0${String(showArchived)}\0${statuses.join(",")}`}
+          onOpen={(session) => setView({ kind: "editor", session })}
+          onEdit={(session) => setView({ kind: "editor", session })}
+        />
+      ) : null}
     </div>
   );
 }

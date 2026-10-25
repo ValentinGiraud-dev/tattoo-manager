@@ -14,6 +14,7 @@ const TARGET_LABELS: Record<EntryTarget["kind"], string> = {
   client: "Ouvrir le client",
   session: "Ouvrir la séance",
   lot: "Ouvrir le lot",
+  product: "Ouvrir la fiche produit",
 };
 
 function sameTarget(a: EntryTarget | null, b: EntryTarget | null | undefined) {
@@ -35,7 +36,7 @@ export function AuditEntryRow({
   showDate?: boolean;
   current?: EntryTarget | null;
 }) {
-  const { openClient, openSession, openLot } = useUIStore();
+  const { openClient, openSession, openLot, openSheet } = useUIStore();
   const lines = changeLines(entry, names);
   const note = hiddenDetailNote(entry);
   const target = entryTarget(entry);
@@ -45,6 +46,7 @@ export function AuditEntryRow({
     if (!target) return;
     if (target.kind === "client") openClient(target.id);
     else if (target.kind === "session") openSession(target.id);
+    else if (target.kind === "product") openSheet(target.id);
     else openLot(target.id);
   }
 

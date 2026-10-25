@@ -78,6 +78,10 @@ pub struct AuditQuery {
     /// Pagination : entrées plus anciennes que ce numéro.
     pub before_seq: Option<i64>,
     pub limit: Option<i64>,
+    /// Entité métier (`product` pour une fiche) et son identifiant. Les deux
+    /// ensemble ; l'un sans l'autre ne filtre pas.
+    pub entity: Option<String>,
+    pub entity_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -209,6 +213,7 @@ pub async fn list_entries(pool: &SqlitePool, query: AuditQuery) -> Result<AuditP
            AND (?5 IS NULL OR date(occurred_at, 'localtime') <= ?5)
            AND (?6 IS NULL OR entity IN (SELECT value FROM json_each(?6)))
            AND (?7 IS NULL OR seq < ?7)
+           AND (?9 IS NULL OR (entity = ?9 AND entity_id = ?10))
          ORDER BY seq DESC
          LIMIT ?8",
     )
@@ -220,6 +225,8 @@ pub async fn list_entries(pool: &SqlitePool, query: AuditQuery) -> Result<AuditP
     .bind(entities)
     .bind(query.before_seq)
     .bind(limit + 1)
+    .bind(query.entity.as_deref())
+    .bind(query.entity_id.as_deref())
     .fetch_all(pool)
     .await?;
 

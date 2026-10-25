@@ -25,8 +25,7 @@ test("accueil → séance → client → séance : le retour remonte chaque nive
   await page.getByRole("button", { name: "← Clients" }).click();
   await expect(page.getByRole("heading", { name: "Léa Martin" })).toBeVisible();
   await page.getByRole("button", { name: "← Séances" }).click();
-  await expect(page.getByRole("button", { name: "Modifier" })).toBeVisible();
-  await expect(page.getByText("Léa Martin · 15 octobre 2026")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Avant-bras" })).toBeVisible();
   // La séance avait été ouverte depuis l'accueil : le retour y ramène encore.
   await page.getByRole("button", { name: "← Accueil" }).click();
   await expect(page.getByRole("heading", { name: "Aujourd’hui" })).toBeVisible();
@@ -35,5 +34,5 @@ test("accueil → séance → client → séance : le retour remonte chaque nive
 test("le menu ramène toujours à la liste", async ({ page }) => {
   await page.getByRole("button", { name: /Encre rouge · lot ER-1/ }).click();
   await page.getByRole("navigation").getByRole("button", { name: "Produits" }).click();
-  await expect(page.getByRole("heading", { name: "Produits" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ma traçabilité" })).toBeVisible();
 });

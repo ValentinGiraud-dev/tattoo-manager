@@ -39,7 +39,7 @@ test("la fiche client montre son historique des modifications", async ({ page })
     .getByRole("navigation", { name: "Navigation principale" })
     .getByRole("button", { name: "Clients" })
     .click();
-  await page.getByRole("button", { name: /Martin Léa/ }).click();
+  await page.getByRole("row", { name: /Léa Martin/ }).click();
 
   const history = page.getByRole("button", { name: /Historique des modifications/ });
   await expect(history).toHaveAttribute("aria-expanded", "false");

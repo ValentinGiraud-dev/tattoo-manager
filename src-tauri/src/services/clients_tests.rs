@@ -68,6 +68,57 @@ async fn client_with_a_session_cannot_be_deleted() {
 }
 
 #[tokio::test]
+async fn list_counts_each_clients_sessions() {
+    let pool = db().await;
+    let with_sessions = clients::create_client(&pool, input()).await.unwrap();
+    let without = clients::create_client(
+        &pool,
+        ClientInput {
+            first_name: "Noa".into(),
+            last_name: "Bernard".into(),
+            birth_date: None,
+            address: None,
+            email: None,
+            phone: None,
+            notes: None,
+        },
+    )
+    .await
+    .unwrap();
+    for date in ["2026-10-01", "2026-10-02"] {
+        sessions::create_session(
+            &pool,
+            SessionInput {
+                client_id: with_sessions.id.clone(),
+                project_id: None,
+                date: date.into(),
+                start_time: None,
+                duration_minutes: None,
+                status: SessionStatus::Completed,
+                price_cents: None,
+                body_area: None,
+                description: None,
+                notes: None,
+                title: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let listed = clients::list_clients(&pool, None, false).await.unwrap();
+    let count = |id: &str| {
+        listed
+            .iter()
+            .find(|item| item.client.id == id)
+            .unwrap()
+            .session_count
+    };
+    assert_eq!(count(&with_sessions.id), 2);
+    assert_eq!(count(&without.id), 0);
+}
+
+#[tokio::test]
 async fn deleting_an_unknown_client_is_refused() {
     let pool = db().await;
     assert!(matches!(

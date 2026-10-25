@@ -52,7 +52,7 @@ function BackupStatus({ onOpen }: { onOpen: () => void }) {
 
 const NAV: { id: AppPage; label: string }[] = [
   { id: "dashboard", label: "Accueil" },
-  { id: "planning", label: "Planning" },
+  // Planning masqué pour l'instant. L'écran reste dans `features/planning` et `App.tsx`.
   { id: "clients", label: "Clients" },
   { id: "sessions", label: "Séances" },
   { id: "products", label: "Produits" },

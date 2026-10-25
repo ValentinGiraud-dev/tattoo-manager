@@ -12,6 +12,13 @@ const dateTime = new Intl.DateTimeFormat("fr-FR", {
   minute: "2-digit",
 });
 
+const weekdayDate = new Intl.DateTimeFormat("fr-FR", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
 /** Date métier `AAAA-MM-JJ` (date locale) → « 14 octobre 2026 ». */
 export function formatIsoDate(value: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -24,10 +31,23 @@ export function formatIsoDate(value: string): string {
  * → date et heure locales : « 14 oct. 2026, 15:42 ».
  */
 export function formatTimestamp(value: string): string {
+  const date = utcDate(value);
+  if (!date) return value;
+  return dateTime.format(date);
+}
+
+/** Horodatage UTC → « Mercredi 21 octobre 2026 », en heure locale. */
+export function formatWeekdayDate(value: string): string {
+  const date = utcDate(value);
+  if (!date) return value;
+  const formatted = weekdayDate.format(date);
+  return formatted.charAt(0).toLocaleUpperCase("fr-FR") + formatted.slice(1);
+}
+
+function utcDate(value: string): Date | null {
   const utc = /[zZ]|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`;
   const date = new Date(utc);
-  if (Number.isNaN(date.getTime())) return value;
-  return dateTime.format(date);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 const relative = new Intl.RelativeTimeFormat("fr-FR", { numeric: "auto" });

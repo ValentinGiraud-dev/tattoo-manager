@@ -8,16 +8,19 @@ export function CategorySelect({
   categories,
   value,
   onChange,
+  disabled = false,
 }: {
   categories: Category[];
   value: string | null;
   onChange: (value: string | null) => void;
+  disabled?: boolean;
 }) {
   return (
     <label className={labelClass}>
       Catégorie
       <select
         value={value ?? ""}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value === "" ? null : event.target.value)}
         className={fieldClass}
       >

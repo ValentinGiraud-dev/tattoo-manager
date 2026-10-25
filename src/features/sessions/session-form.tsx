@@ -34,10 +34,12 @@ export type SessionDraft = {
 export function SessionForm({
   session,
   draft,
+  locked = false,
   onDone,
 }: {
   session?: SessionListItem;
   draft?: SessionDraft;
+  locked?: boolean;
   onDone: (saved?: SessionListItem) => void;
 }) {
   const { create, update, overlaps } = useSessionsStore();
@@ -169,6 +171,7 @@ export function SessionForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (locked) return;
     const data = new FormData(event.currentTarget);
     const text = (name: string) => String(data.get(name) ?? "");
     if (!clientId) {
@@ -254,6 +257,10 @@ export function SessionForm({
     }
   }
 
+  function leave() {
+    void guardedLeave(() => onDone());
+  }
+
   return (
     <>
       <form
@@ -261,21 +268,8 @@ export function SessionForm({
         onInput={(event) => {
           if ((event.target as HTMLElement).getAttribute("name")) touch();
         }}
-        className="mx-auto flex max-w-xl flex-col gap-4 px-8 py-10"
+        className="flex flex-col gap-4"
       >
-        <div>
-          <button
-            type="button"
-            onClick={() => void guardedLeave(() => onDone())}
-            className="mb-4 text-[13px] text-fg-muted hover:text-fg"
-          >
-            ← Retour
-          </button>
-          <h1 className="text-[24px] font-medium tracking-tight">
-            {session ? "Modifier la séance" : "Nouvelle séance"}
-          </h1>
-        </div>
-
         <div>
           <label htmlFor="session-client" className={labelClass}>
             Client *
@@ -291,7 +285,7 @@ export function SessionForm({
                 setProjects([]);
                 touch();
               }}
-              disabled={clientLocked}
+              disabled={locked || clientLocked}
               className={fieldClass.replace("mt-1.5", "")}
             >
               <option value="" disabled>
@@ -303,7 +297,7 @@ export function SessionForm({
                 </option>
               ))}
             </select>
-            {!clientLocked && (
+            {!locked && !clientLocked && (
               <button
                 type="button"
                 onClick={() => setCreatingClient(true)}
@@ -319,7 +313,7 @@ export function SessionForm({
               attachée à ce client.
             </p>
           )}
-          {!clientLocked && clientsReady && clients.length === 0 && (
+          {!locked && !clientLocked && clientsReady && clients.length === 0 && (
             <p className="mt-1.5 text-[12.5px] text-fg-muted">
               Aucun client pour l'instant. Crée-le ici, la séance reste ouverte.
             </p>
@@ -327,32 +321,20 @@ export function SessionForm({
         </div>
 
         <div>
-          <label htmlFor="session-title" className={labelClass}>
-            Titre de la séance
-          </label>
+          <span className={labelClass}>Projet</span>
           <div className="mt-1.5 flex items-center gap-2">
-            <input
-              id="session-title"
-              value={title}
-              onChange={(event) => {
-                setTitle(event.target.value);
-                touch();
-              }}
-              placeholder="Ex. Retouche ombrage"
-              className={`${fieldClass.replace("mt-1.5", "")} min-w-0 flex-1`}
-            />
             <button
               type="button"
               onClick={() => setPickingProject(true)}
-              disabled={!clientId}
+              disabled={locked || !clientId}
               aria-label={
                 linkedProject ? `Changer le projet, ${linkedProject.title}` : "Lier à un projet"
               }
-              className={`${btnGhost} max-w-44 shrink-0 truncate`}
+              className={`${btnGhost} max-w-56 shrink-0 truncate`}
             >
               {linkedProject ? linkedProject.title : "Lier à un projet"}
             </button>
-            {linkedProject && (
+            {linkedProject && !locked && (
               <button
                 type="button"
                 onClick={() => {
@@ -367,30 +349,31 @@ export function SessionForm({
           </div>
         </div>
 
-        <div>
-          <label htmlFor="session-date" className={labelClass}>
-            Date *
-          </label>
-          <DateSelector
-            id="session-date"
-            value={date}
-            onChange={(value) => {
-              setDate(value);
-              touch();
-            }}
-            placeholder="Choisir la date de séance"
-            minYear={currentYear - 10}
-            maxYear={currentYear + 2}
-          />
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <label htmlFor="session-date" className={labelClass}>
+              Date *
+            </label>
+            <DateSelector
+              id="session-date"
+              value={date}
+              disabled={locked}
+              onChange={(value) => {
+                setDate(value);
+                touch();
+              }}
+              placeholder="Choisir la date de séance"
+              minYear={currentYear - 10}
+              maxYear={currentYear + 2}
+            />
+          </div>
           <label className={labelClass}>
-            Heure de début
+            Heure
             <input
               type="time"
               step={900}
               value={startTime}
+              disabled={locked}
               onChange={(event) => {
                 setStartTime(event.target.value);
                 touch();
@@ -406,7 +389,7 @@ export function SessionForm({
                 setDuration(Number(event.target.value));
                 touch();
               }}
-              disabled={startTime === ""}
+              disabled={locked || startTime === ""}
               className={fieldClass}
             >
               <option value={0}>Non précisée</option>
@@ -419,12 +402,64 @@ export function SessionForm({
           </label>
         </div>
 
+        <label className={labelClass}>
+          Zone
+          <input
+            value={bodyArea}
+            disabled={locked}
+            onChange={(event) => {
+              setBodyArea(event.target.value);
+              touch();
+            }}
+            placeholder="Ex. avant-bras gauche"
+            className={fieldClass}
+          />
+        </label>
+
+        <label className={labelClass}>
+          Description
+          <textarea
+            name="description"
+            rows={3}
+            disabled={locked}
+            defaultValue={session?.description ?? ""}
+            className={fieldClass}
+          />
+        </label>
+
+        <label htmlFor="session-title" className={labelClass}>
+          Titre de la séance
+          <input
+            id="session-title"
+            value={title}
+            disabled={locked}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              touch();
+            }}
+            placeholder="Ex. Retouche ombrage"
+            className={fieldClass}
+          />
+        </label>
+
+        <label className={labelClass}>
+          Notes
+          <textarea
+            name="notes"
+            rows={3}
+            disabled={locked}
+            defaultValue={session?.notes ?? ""}
+            className={fieldClass}
+          />
+        </label>
+
         <div className="grid gap-3 sm:grid-cols-2">
           <label className={labelClass}>
             Prix de la séance (€)
             <input
               inputMode="decimal"
               value={price}
+              disabled={locked}
               onChange={(event) => {
                 setPrice(event.target.value);
                 touch();
@@ -436,7 +471,9 @@ export function SessionForm({
           <label className={labelClass}>
             Statut *
             <select
+              aria-label="Statut de la séance"
               value={status}
+              disabled={locked}
               onChange={(event) => {
                 setStatus(event.target.value as SessionStatus);
                 touch();
@@ -452,53 +489,18 @@ export function SessionForm({
           </label>
         </div>
 
-        <label className={labelClass}>
-          Zone du corps
-          <input
-            value={bodyArea}
-            onChange={(event) => {
-              setBodyArea(event.target.value);
-              touch();
-            }}
-            placeholder="Ex. avant-bras gauche"
-            className={fieldClass}
-          />
-        </label>
-
-        <label className={labelClass}>
-          Description
-          <textarea
-            name="description"
-            rows={3}
-            defaultValue={session?.description ?? ""}
-            className={fieldClass}
-          />
-        </label>
-
-        <label className={labelClass}>
-          Notes
-          <textarea
-            name="notes"
-            rows={3}
-            defaultValue={session?.notes ?? ""}
-            className={fieldClass}
-          />
-        </label>
-
         {error && <p className="text-[13px] text-danger">{error}</p>}
 
-        <div className="flex items-center gap-3 pt-1">
-          <button type="submit" disabled={saving} className={btnPrimary}>
-            {saving ? "Enregistrement…" : "Enregistrer"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void guardedLeave(() => onDone())}
-            className={btnGhost}
-          >
-            Annuler
-          </button>
-        </div>
+        {!locked && (
+          <div className="flex items-center gap-3 pt-1">
+            <button type="submit" disabled={saving} className={btnPrimary}>
+              {saving ? "Enregistrement…" : "Enregistrer"}
+            </button>
+            <button type="button" onClick={leave} className={btnGhost}>
+              Annuler
+            </button>
+          </div>
+        )}
       </form>
       {creatingClient && (
         <ClientCreateDialog

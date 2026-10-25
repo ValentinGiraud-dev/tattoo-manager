@@ -32,23 +32,23 @@ test("créer Aiguilles › RL, y ranger un lot et filtrer la liste", async ({ pa
   await page.getByRole("button", { name: "← Produits" }).click();
   const tree = page.getByRole("navigation", { name: "Catégories" });
   await tree.getByRole("button", { name: /^RL/ }).click();
-  await expect(page.getByRole("heading", { name: "Aiguilles › RL" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ma traçabilité" })).toBeVisible();
+  await expect(tree.getByRole("button", { name: /^RL/ })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Aucun produit dans cette catégorie.")).toBeVisible();
 
   // La nouvelle fiche est proposée dans la catégorie affichée.
   await page.getByRole("button", { name: "Ajouter un produit ici" }).click();
   await expect(page.getByRole("combobox", { name: "Catégorie" })).toHaveValue("cat2");
   await page.getByLabel("Nom *").fill("Aiguille 3RL");
-  await page.getByRole("button", { name: "Créer la fiche" }).click();
+  await page.getByRole("button", { name: "Ajouter", exact: true }).click();
   await expect(page.getByRole("list", { name: "Notifications" })).toContainText(
     "Fiche produit créée",
   );
   await expect(page.getByRole("heading", { name: "Aiguille 3RL" })).toBeVisible();
   await expect(page.getByText("Aiguilles › RL", { exact: true })).toBeVisible();
 
-  // Réception d'un lot depuis la fiche : elle est choisie d'office.
-  await page.getByRole("button", { name: "Recevoir un lot" }).first().click();
-  await expect(page.getByLabel("Fiche produit *")).toHaveValue("p1");
+  // Réception d'un lot depuis la fiche : les champs sont déjà là, la fiche est choisie.
+  await expect(page.getByRole("heading", { name: "Ajouter un lot pour ce produit" })).toBeVisible();
   await page.getByLabel("Numéro de lot *").fill("A-1");
   await page.getByRole("button", { name: "Date d'expiration *" }).click();
   await page
@@ -66,7 +66,7 @@ test("créer Aiguilles › RL, y ranger un lot et filtrer la liste", async ({ pa
     .getByRole("button", { name: "Produits" })
     .click();
   await tree.getByRole("button", { name: /^Aiguilles/ }).click();
-  await expect(page.getByRole("button", { name: /Aiguille 3RL/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Aiguille 3RL/ })).toBeVisible();
   // Le lot sans fiche et sans catégorie n'est pas dans « Aiguilles ».
   await expect(page.getByRole("button", { name: /Encre rouge/ })).toBeHidden();
 });

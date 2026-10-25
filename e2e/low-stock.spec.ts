@@ -22,11 +22,11 @@ test("un seuil par produit sur la catégorie s'applique, l'accueil prévient et 
 
   // Nouvelle fiche dans « Gants » : le seuil de la catégorie est proposé.
   await page.getByRole("button", { name: "← Produits" }).click();
-  await page.getByRole("button", { name: "Nouvelle fiche produit" }).click();
+  await page.getByRole("button", { name: "Ajouter un produit" }).click();
   await page.getByLabel("Nom *").fill("Gants nitrile M");
   await page.getByRole("combobox", { name: "Catégorie" }).selectOption({ label: "Gants" });
   await expect(page.getByText("Comme la catégorie : alerte à 2 ou moins (Gants)")).toBeVisible();
-  await page.getByRole("button", { name: "Créer la fiche" }).click();
+  await page.getByRole("button", { name: "Ajouter", exact: true }).click();
 
   // Aucun lot : 0 en stock, donc sous le seuil.
   await expect(page.getByText("Stock bas :", { exact: false }).first()).toBeVisible();
@@ -35,7 +35,7 @@ test("un seuil par produit sur la catégorie s'applique, l'accueil prévient et 
   await page.getByRole("button", { name: "← Produits" }).click();
   await expect(page.getByRole("button", { name: "Stock bas (1)" })).toBeVisible();
   await page.getByRole("button", { name: "Stock bas (1)" }).click();
-  await expect(page.getByRole("button", { name: /Gants nitrile M/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Gants nitrile M/ })).toBeVisible();
   // Le filtre masque ce qui n'est pas en stock bas (le lot sans fiche).
   await expect(page.getByRole("heading", { name: /sans fiche produit/ })).toBeHidden();
 
@@ -53,10 +53,10 @@ test("« Pas d'alerte » sur une fiche l'emporte sur sa catégorie", async ({ pa
     .getByRole("navigation", { name: "Navigation principale" })
     .getByRole("button", { name: "Produits" })
     .click();
-  await page.getByRole("button", { name: "Nouvelle fiche produit" }).click();
+  await page.getByRole("button", { name: "Ajouter un produit" }).click();
   await page.getByLabel("Nom *").fill("Film étirable");
   await page.getByLabel("Pas d'alerte pour ce produit").check();
-  await page.getByRole("button", { name: "Créer la fiche" }).click();
+  await page.getByRole("button", { name: "Ajouter", exact: true }).click();
   await expect(page.getByText("Pas d'alerte (réglé sur la fiche)")).toBeVisible();
   await expect(page.getByText("Stock bas :")).toBeHidden();
 });

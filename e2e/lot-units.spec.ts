@@ -5,15 +5,15 @@ test("la date d'ouverture d'une pièce se choisit au-dessus de la liste", async 
     .getByRole("navigation", { name: "Navigation principale" })
     .getByRole("button", { name: "Produits" })
     .click();
-  await page.getByRole("button", { name: "Nouvelle fiche produit" }).click();
+  await page.getByRole("button", { name: "Ajouter un produit" }).click();
   await page.getByLabel("Nom *").fill("Noir");
   await page.getByLabel("Marque").fill("Dynamic");
   await page.getByRole("button", { name: "Usage multiple" }).click();
   await page.getByLabel("Durée après ouverture (mois)").fill("12");
-  await page.getByRole("button", { name: "Créer la fiche" }).click();
+  await page.getByRole("button", { name: "Ajouter", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Dynamic Noir" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ajouter un lot pour ce produit" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Recevoir un lot" }).first().click();
   await page.getByLabel("Numéro de lot *").fill("N-1");
   await page.getByRole("button", { name: "Date d'expiration *" }).click();
   await page
@@ -22,6 +22,7 @@ test("la date d'ouverture d'une pièce se choisit au-dessus de la liste", async 
     .click();
   await page.getByLabel("Nombre de pièces reçues *").fill("2");
   await page.getByRole("button", { name: "Enregistrer la réception" }).click();
+  await page.getByRole("button", { name: /Lot N-1/ }).click();
   await expect(page.getByRole("heading", { name: "Pièces" })).toBeVisible();
 
   const opener = page.getByRole("button", { name: "Ouvert le" });
