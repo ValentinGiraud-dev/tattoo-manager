@@ -21,9 +21,12 @@ export const PAGE_LABELS: Record<AppPage, string> = {
   settings: "Paramètres",
 };
 
+/** Zone de la fiche séance à montrer à l'ouverture (accueil). */
+export type SessionFocus = "documents" | "usages";
+
 /** Demande d'ouverture faite depuis un autre écran (planning, fiche client…). */
 export type SessionIntent =
-  | { kind: "open"; sessionId: string }
+  | { kind: "open"; sessionId: string; focus?: SessionFocus }
   | { kind: "new"; date: string; startTime: string | null; clientId?: string; projectId?: string };
 
 /** Fiche affichée dans l'écran courant, pour pouvoir y revenir. */
@@ -52,7 +55,7 @@ type UIState = {
   setUnsavedChanges: (value: boolean) => void;
   /** Lue puis effacée par l'écran Séances. */
   sessionIntent: SessionIntent | null;
-  openSession: (sessionId: string) => void;
+  openSession: (sessionId: string, focus?: SessionFocus) => void;
   newSession: (draft: Omit<Extract<SessionIntent, { kind: "new" }>, "kind">) => void;
   takeSessionIntent: () => SessionIntent | null;
   /** Lot à ouvrir dans Produits. */
@@ -124,7 +127,8 @@ export const useUIStore = create<UIState>((set, get) => {
     unsavedChanges: false,
     setUnsavedChanges: (unsavedChanges) => set({ unsavedChanges }),
     sessionIntent: null,
-    openSession: (sessionId) => jump("sessions", { sessionIntent: { kind: "open", sessionId } }),
+    openSession: (sessionId, focus) =>
+      jump("sessions", { sessionIntent: { kind: "open", sessionId, focus } }),
     newSession: (draft) => jump("sessions", { sessionIntent: { kind: "new", ...draft } }),
     takeSessionIntent: () => {
       const intent = get().sessionIntent;

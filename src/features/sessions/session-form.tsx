@@ -62,6 +62,12 @@ export function SessionForm({
   const [price, setPrice] = useState(centsToInput(session?.priceCents));
   const [bodyArea, setBodyArea] = useState(session?.bodyArea ?? "");
   const [status, setStatus] = useState<SessionStatus>(session?.status ?? "PLANNED");
+  const incomingStatus = session?.status;
+  const [seenStatus, setSeenStatus] = useState(incomingStatus);
+  if (incomingStatus !== seenStatus) {
+    setSeenStatus(incomingStatus);
+    if (incomingStatus) setStatus(incomingStatus);
+  }
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [creatingClient, setCreatingClient] = useState(false);
@@ -349,8 +355,8 @@ export function SessionForm({
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
             <label htmlFor="session-date" className={labelClass}>
               Date *
             </label>

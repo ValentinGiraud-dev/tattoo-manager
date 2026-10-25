@@ -86,6 +86,9 @@ export function installFakeBackend(scenario: Scenario) {
     description: null,
     notes: null,
     aftercareExplained: false,
+    readiness: null as string | null,
+    readinessReason: null as string | null,
+    readinessValidatedAt: null as string | null,
     createdAt: stamp,
     updatedAt: stamp,
     clientFirstName: "Léa",
@@ -129,6 +132,7 @@ export function installFakeBackend(scenario: Scenario) {
     clientLastName: "Martin",
     projectTitle: null,
     title: null,
+    description: null,
     date: TODAY,
     startTime: "14:00",
     durationMinutes: 120,
@@ -535,11 +539,32 @@ export function installFakeBackend(scenario: Scenario) {
       session.aftercareExplained = explained === true;
       return session;
     },
+    validate_session_readiness: ({ readiness, reason }) => {
+      const motif = typeof reason === "string" ? reason.trim() : "";
+      if (readiness === "POSTPONED" || readiness === "IMPOSSIBLE") {
+        if (!motif) return fail("Le motif est obligatoire");
+        if (session.status === "COMPLETED") {
+          return fail(
+            "Une séance terminée ne peut plus être reportée ou annulée depuis les documents",
+          );
+        }
+      }
+      if (readiness === "FEASIBLE" && motif) {
+        return fail("Le motif ne s'écrit que pour un report ou une prestation impossible");
+      }
+      session.readiness = typeof readiness === "string" ? readiness : null;
+      session.readinessReason = motif || null;
+      session.readinessValidatedAt = "2026-10-15T14:32:00";
+      session.aftercareExplained = true;
+      if (readiness === "POSTPONED") session.status = "RESCHEDULED";
+      if (readiness === "IMPOSSIBLE") session.status = "CANCELLED";
+      return session;
+    },
     list_session_usages: () => [],
     get_session_paperwork: () => ({
       sessionId: "s1",
       sessionDate: TODAY,
-      sessionStatus: "PLANNED",
+      sessionStatus: session.status,
       clientFirstName: "Léa",
       clientLastName: "Martin",
       clientBirthDate: "1995-04-02",
@@ -550,6 +575,9 @@ export function installFakeBackend(scenario: Scenario) {
       healthSigned: false,
       consentSigned: false,
       documents: [],
+      readiness: session.readiness,
+      readinessReason: session.readinessReason,
+      readinessValidatedAt: session.readinessValidatedAt,
     }),
     get_session_billing: () => ({
       sessionId: "s1",

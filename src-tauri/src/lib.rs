@@ -101,6 +101,7 @@ pub fn run() {
             commands::create_session,
             commands::update_session,
             commands::set_aftercare_explained,
+            commands::validate_session_readiness,
             commands::list_lots,
             commands::get_lot,
             commands::find_lot,

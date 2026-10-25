@@ -7,6 +7,11 @@ const ui = () => useUIStore.getState();
 describe("navigation entre écrans", () => {
   beforeEach(() => useUIStore.setState(initial, true));
 
+  it("retient la zone à montrer en ouvrant une séance", () => {
+    ui().openSession("s-1", "documents");
+    expect(ui().sessionIntent).toEqual({ kind: "open", sessionId: "s-1", focus: "documents" });
+  });
+
   it("ouvre un lot depuis l'accueil puis y revient", () => {
     ui().openLot("lot-1");
     expect(ui()).toMatchObject({ page: "products", lotIntent: "lot-1" });

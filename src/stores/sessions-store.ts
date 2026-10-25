@@ -3,6 +3,9 @@ import { create } from "zustand";
 
 export type SessionStatus = "PLANNED" | "COMPLETED" | "CANCELLED" | "RESCHEDULED" | "NO_SHOW";
 
+/** Décision validée sur les documents d'une séance. */
+export type Readiness = "FEASIBLE" | "POSTPONED" | "IMPOSSIBLE";
+
 export interface SessionListItem {
   id: string;
   clientId: string;
@@ -19,8 +22,14 @@ export interface SessionListItem {
   bodyArea: string | null;
   description: string | null;
   notes: string | null;
-  /** La tatoueuse a expliqué les règles d'hygiène après le tatouage. */
+  /** La fiche de soin a été notée comme transmise, à la validation des documents. */
   aftercareExplained: boolean;
+  /** Décision sur les documents. Vide tant qu'elle n'est pas validée. */
+  readiness: Readiness | null;
+  /** Motif d'un report ou d'une prestation impossible. */
+  readinessReason: string | null;
+  /** Heure de la validation. Une fois posée, la décision ne change plus. */
+  readinessValidatedAt: string | null;
   createdAt: string;
   updatedAt: string;
   clientFirstName: string;
@@ -91,6 +100,11 @@ interface SessionsState {
   create: (input: SessionInput) => Promise<SessionListItem>;
   update: (id: string, input: SessionInput) => Promise<SessionListItem>;
   setAftercareExplained: (id: string, explained: boolean) => Promise<SessionListItem>;
+  validateReadiness: (
+    sessionId: string,
+    readiness: Readiness,
+    reason: string | null,
+  ) => Promise<SessionListItem>;
   get: (id: string) => Promise<SessionListItem>;
   previewRemoval: (id: string) => Promise<SessionRemoval>;
   remove: (id: string) => Promise<void>;
@@ -134,6 +148,15 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   },
   setAftercareExplained: async (id, explained) => {
     const session = await invoke<SessionListItem>("set_aftercare_explained", { id, explained });
+    await get().load();
+    return session;
+  },
+  validateReadiness: async (sessionId, readiness, reason) => {
+    const session = await invoke<SessionListItem>("validate_session_readiness", {
+      sessionId,
+      readiness,
+      reason,
+    });
     await get().load();
     return session;
   },

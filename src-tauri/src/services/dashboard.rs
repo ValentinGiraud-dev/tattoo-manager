@@ -36,6 +36,7 @@ pub struct DaySession {
     pub client_last_name: String,
     pub project_title: Option<String>,
     pub title: Option<String>,
+    pub description: Option<String>,
     pub date: String,
     pub start_time: Option<String>,
     pub duration_minutes: Option<i64>,
@@ -80,7 +81,7 @@ fn day_session_select() -> String {
             s.id, s.client_id,
             c.first_name AS client_first_name, c.last_name AS client_last_name,
             p.title AS project_title,
-            s.title,
+            s.title, s.description,
             s.date, s.start_time, s.duration_minutes, s.status, s.body_area, s.price_cents,
             {paid} AS paid_cents,
             EXISTS (SELECT 1 FROM session_forms f

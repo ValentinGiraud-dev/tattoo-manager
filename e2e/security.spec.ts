@@ -24,17 +24,17 @@ test.describe("première ouverture", () => {
     await page.getByLabel("J’ai noté la clé de secours en lieu sûr.").check();
     await next.click();
 
-    await expect(page.getByRole("heading", { name: "Aujourd’hui" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   });
 });
 
 test.describe("verrouillage", () => {
   test("⌘L verrouille, un mauvais mot de passe est refusé, le bon rouvre", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "Aujourd’hui" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
     await page.keyboard.press("Meta+l");
     await expect(page.getByRole("heading", { name: "Tracink est verrouillé" })).toBeVisible();
     // L'app est masquée pendant le verrouillage.
-    await expect(page.getByRole("heading", { name: "Aujourd’hui" })).toBeHidden();
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeHidden();
 
     await page.getByLabel("Mot de passe").fill("faux");
     await page.getByRole("button", { name: "Déverrouiller" }).click();
@@ -42,6 +42,6 @@ test.describe("verrouillage", () => {
 
     await page.getByLabel("Mot de passe").fill("atelier secret");
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("heading", { name: "Aujourd’hui" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   });
 });

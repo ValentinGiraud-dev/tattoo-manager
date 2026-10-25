@@ -10,7 +10,9 @@ import {
   type Paperwork,
   type SessionDocument,
 } from "../../stores/paperwork-store";
+import type { SessionListItem } from "../../stores/sessions-store";
 import { toast } from "../../stores/toast-store";
+import { SessionReadiness } from "./session-readiness";
 
 const DOCUMENT_LABELS: Record<DocumentKind, string> = {
   HEALTH_SIGNED: "Questionnaire de santé signé",
@@ -27,13 +29,19 @@ function formatSize(bytes: number) {
 
 type Tone = "neutral" | "warning" | "success";
 
-function StatusText({ tone, children }: { tone: Tone; children: ReactNode }) {
+function StatusPill({ tone, children }: { tone: Tone; children: ReactNode }) {
   const tones: Record<Tone, string> = {
-    neutral: "text-fg-faint",
-    warning: "text-warning",
-    success: "text-success",
+    neutral: "bg-surface-3 text-fg-muted",
+    warning: "bg-warning/15 text-warning",
+    success: "bg-success/15 text-success",
   };
-  return <span className={`text-[13px] ${tones[tone]}`}>{children}</span>;
+  return (
+    <span
+      className={`inline-flex items-center rounded-pill px-2 py-0.5 text-[12px] font-medium ${tones[tone]}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 function IconButton({
@@ -161,14 +169,14 @@ function formState(
   missing: number,
   signed: boolean,
 ): { tone: Tone; label: string } {
-  if (signed) return { tone: "success", label: "Signé" };
+  if (signed) return { tone: "success", label: "Validé" };
   if (!exists) return { tone: "neutral", label: "À remplir" };
   if (missing > 0)
     return {
       tone: "warning",
       label: `Incomplet · ${missing} réponse${missing > 1 ? "s" : ""} manquante${missing > 1 ? "s" : ""}`,
     };
-  return { tone: "neutral", label: "Prêt à imprimer et signer" };
+  return { tone: "neutral", label: "Prêt à signer" };
 }
 
 /**
@@ -178,16 +186,12 @@ function formState(
 export function SessionPaperwork({
   sessionId,
   onOpenForm,
-  aftercareExplained,
-  onAftercareExplained,
-  aftercareBusy = false,
+  onValidated,
   readOnly = false,
 }: {
   sessionId: string;
   onOpenForm: (kind: FormKind, paperwork: Paperwork) => void;
-  aftercareExplained: boolean;
-  onAftercareExplained: (explained: boolean) => void;
-  aftercareBusy?: boolean;
+  onValidated: (session: SessionListItem) => void | Promise<void>;
   readOnly?: boolean;
 }) {
   const store = usePaperworkStore();
@@ -278,10 +282,18 @@ export function SessionPaperwork({
   }
 
   if (error && !paperwork) {
-    return <p className="text-[13px] text-danger">{error}</p>;
+    return (
+      <section id="session-documents" className="scroll-mt-6">
+        <p className="text-[13px] text-danger">{error}</p>
+      </section>
+    );
   }
   if (!paperwork) {
-    return <p className="text-[13px] text-fg-muted">Chargement des documents…</p>;
+    return (
+      <section id="session-documents" className="scroll-mt-6">
+        <p className="text-[13px] text-fg-muted">Chargement des documents…</p>
+      </section>
+    );
   }
 
   const health = formState(
@@ -321,7 +333,7 @@ export function SessionPaperwork({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
             <p className="text-[14px] font-medium">{title}</p>
-            <StatusText tone={state.tone}>{state.label}</StatusText>
+            <StatusPill tone={state.tone}>{state.label}</StatusPill>
           </div>
           <p className="mt-0.5 text-[12.5px] text-fg-faint">
             {stamp ? formatTimestamp(stamp) : "Pas encore rempli"}
@@ -376,7 +388,7 @@ export function SessionPaperwork({
   );
 
   return (
-    <section className="flex flex-col gap-3">
+    <section id="session-documents" className="flex scroll-mt-6 flex-col gap-3">
       <div>
         <h2 className="text-[14px] font-medium">Documents</h2>
         <p className="mt-0.5 text-[12.5px] text-fg-faint">À remplir par le client, puis par toi.</p>
@@ -483,16 +495,17 @@ export function SessionPaperwork({
             + Ajouter un document
           </button>
         )}
-        <label className="flex items-start gap-2.5 border-t border-line px-4 py-3 text-[13.5px] text-fg">
-          <input
-            type="checkbox"
-            checked={aftercareExplained}
-            disabled={readOnly || busy || aftercareBusy}
-            onChange={(event) => onAftercareExplained(event.target.checked)}
-            className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
-          />
-          J’ai expliqué les règles d’hygiène après le tatouage.
-        </label>
+        <SessionReadiness
+          sessionId={sessionId}
+          sessionStatus={paperwork.sessionStatus}
+          healthSigned={paperwork.healthSigned}
+          consentSigned={paperwork.consentSigned}
+          readiness={paperwork.readiness}
+          reason={paperwork.readinessReason}
+          validatedAt={paperwork.readinessValidatedAt}
+          readOnly={readOnly}
+          onValidated={onValidated}
+        />
       </div>
     </section>
   );

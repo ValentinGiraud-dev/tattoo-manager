@@ -12,6 +12,7 @@ export type DaySession = {
   clientLastName: string;
   projectTitle: string | null;
   title: string | null;
+  description: string | null;
   date: string;
   startTime: string | null;
   durationMinutes: number | null;

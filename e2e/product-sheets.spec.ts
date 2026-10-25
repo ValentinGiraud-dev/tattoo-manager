@@ -27,6 +27,8 @@ test("un lot reçu avant les fiches est signalé, puis rattaché à sa nouvelle 
   );
 
   await expect(page.getByRole("heading", { name: "Dynamic Encre rouge" })).toBeVisible();
+  await expect(page.getByLabel("Nom *")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Modifier la fiche" })).toBeVisible();
   // Le lot est périmé : son stock est compté à part.
   await expect(page.getByText("0 en stock · 4 dans des lots périmés").first()).toBeVisible();
   await expect(page.getByRole("button", { name: /Lot ER-1/ })).toBeVisible();

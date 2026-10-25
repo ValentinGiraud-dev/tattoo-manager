@@ -12,6 +12,19 @@ pub enum SessionStatus {
     NoShow,
 }
 
+/// Décision sur les documents d'une séance. Posée une seule fois.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[sqlx(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Readiness {
+    /// Les documents sont là : la prestation peut se faire. Le statut ne change pas.
+    Feasible,
+    /// Document manquant, avis médical ou autre. La séance passe en Reportée.
+    Postponed,
+    /// Le client n'est pas apte. La séance passe en Annulée.
+    Impossible,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {

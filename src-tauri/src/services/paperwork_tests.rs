@@ -9,7 +9,9 @@ use super::paperwork::{
     self, age_at, Allergy, ConsentAnswers, DocumentKind, FormKind, Guardian, GuardianRelation,
     HealthAnswers, ProfessionalDecision, CONSENT_LOCKED, HEALTH_LOCKED,
 };
+use super::sessions::{self, SessionInput};
 use crate::config::StudioSettings;
+use crate::models::{Readiness, SessionStatus};
 use crate::security::files;
 use crate::security::vault::MasterKey;
 
@@ -396,4 +398,212 @@ fn a_session_folder_never_leaves_the_documents_folder() {
         paperwork::session_dir(&root, "abc123").unwrap(),
         PathBuf::from("/docs/abc123")
     );
+}
+
+async fn sign(pool: &SqlitePool, id: &str, kind: &str) {
+    sqlx::query(
+        "INSERT INTO session_documents
+            (id, session_id, kind, stored_name, original_name, size_bytes, created_at)
+         VALUES (?, 's1', ?, 'fichier.enc', 'scan.pdf', 12, '2026-10-14T10:00:00')",
+    )
+    .bind(id)
+    .bind(kind)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+fn planned_input(status: SessionStatus) -> SessionInput {
+    SessionInput {
+        client_id: "c1".into(),
+        project_id: None,
+        title: None,
+        date: "2026-11-02".into(),
+        start_time: None,
+        duration_minutes: None,
+        status,
+        price_cents: None,
+        body_area: None,
+        description: None,
+        notes: None,
+    }
+}
+
+#[tokio::test]
+async fn feasible_needs_both_signed_scans_and_keeps_the_status() {
+    let pool = db(Some("1995-04-02")).await;
+    let missing = paperwork::validate_readiness(&pool, "s1", Readiness::Feasible, None)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        missing.to_string(),
+        "Il manque le questionnaire de santé signé et le consentement signé"
+    );
+
+    sign(&pool, "h1", "HEALTH_SIGNED").await;
+    let consent = paperwork::validate_readiness(&pool, "s1", Readiness::Feasible, None)
+        .await
+        .unwrap_err();
+    assert_eq!(consent.to_string(), "Il manque le consentement signé");
+
+    sign(&pool, "c-scan", "CONSENT_SIGNED").await;
+    let with_reason =
+        paperwork::validate_readiness(&pool, "s1", Readiness::Feasible, Some("Inutile".into()))
+            .await
+            .unwrap_err();
+    assert!(with_reason.to_string().contains("motif"));
+
+    let saved = paperwork::validate_readiness(&pool, "s1", Readiness::Feasible, None)
+        .await
+        .unwrap();
+    assert_eq!(saved.status, SessionStatus::Planned);
+    assert_eq!(saved.readiness, Some(Readiness::Feasible));
+    assert!(saved.readiness_reason.is_none());
+    assert!(saved.readiness_validated_at.is_some());
+    assert!(saved.aftercare_explained);
+
+    let again =
+        paperwork::validate_readiness(&pool, "s1", Readiness::Postponed, Some("Peau".into()))
+            .await
+            .unwrap_err();
+    assert_eq!(
+        again.to_string(),
+        "Les documents de cette séance sont déjà validés"
+    );
+}
+
+#[tokio::test]
+async fn postponing_or_refusing_requires_a_reason_and_changes_the_status() {
+    let pool = db(Some("1995-04-02")).await;
+    let empty = paperwork::validate_readiness(&pool, "s1", Readiness::Postponed, Some("  ".into()))
+        .await
+        .unwrap_err();
+    assert_eq!(empty.to_string(), "Le motif est obligatoire");
+
+    let postponed = paperwork::validate_readiness(
+        &pool,
+        "s1",
+        Readiness::Postponed,
+        Some(" Peau irritée ".into()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(postponed.status, SessionStatus::Rescheduled);
+    assert_eq!(postponed.readiness, Some(Readiness::Postponed));
+    assert_eq!(postponed.readiness_reason.as_deref(), Some("Peau irritée"));
+    assert!(postponed.aftercare_explained);
+
+    let replanned = sessions::update_session(&pool, "s1", planned_input(SessionStatus::Planned))
+        .await
+        .unwrap();
+    assert_eq!(replanned.status, SessionStatus::Planned);
+    assert_eq!(replanned.readiness, Some(Readiness::Postponed));
+    assert_eq!(replanned.readiness_reason.as_deref(), Some("Peau irritée"));
+
+    let frozen =
+        sqlx::query("UPDATE sessions SET readiness_reason = 'Autre motif' WHERE id = 's1'")
+            .execute(&pool)
+            .await
+            .unwrap_err();
+    assert!(frozen.to_string().contains("définitive"));
+
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log
+         WHERE entity = 'session' AND entity_id = 's1' AND action = 'UPDATE'
+           AND after_json LIKE '%\"readiness\":\"POSTPONED\"%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(audited >= 1);
+}
+
+#[tokio::test]
+async fn refusing_the_service_cancels_the_session() {
+    let pool = db(Some("1995-04-02")).await;
+    let saved = paperwork::validate_readiness(
+        &pool,
+        "s1",
+        Readiness::Impossible,
+        Some("Contre-indication".into()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(saved.status, SessionStatus::Cancelled);
+    assert_eq!(saved.readiness, Some(Readiness::Impossible));
+    assert_eq!(saved.readiness_reason.as_deref(), Some("Contre-indication"));
+}
+
+#[tokio::test]
+async fn a_finished_session_can_be_marked_feasible_but_not_moved() {
+    let pool = db(Some("1995-04-02")).await;
+    sqlx::query("UPDATE sessions SET status = 'COMPLETED' WHERE id = 's1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let refused =
+        paperwork::validate_readiness(&pool, "s1", Readiness::Impossible, Some("Trop tard".into()))
+            .await
+            .unwrap_err();
+    assert!(refused.to_string().contains("terminée"));
+
+    let postponed =
+        paperwork::validate_readiness(&pool, "s1", Readiness::Postponed, Some("Trop tard".into()))
+            .await
+            .unwrap_err();
+    assert!(postponed.to_string().contains("terminée"));
+
+    sign(&pool, "h1", "HEALTH_SIGNED").await;
+    sign(&pool, "c-scan", "CONSENT_SIGNED").await;
+    let saved = paperwork::validate_readiness(&pool, "s1", Readiness::Feasible, None)
+        .await
+        .unwrap();
+    assert_eq!(saved.status, SessionStatus::Completed);
+    assert_eq!(saved.readiness, Some(Readiness::Feasible));
+}
+
+#[tokio::test]
+async fn an_archived_session_or_client_cannot_be_validated() {
+    let pool = db(Some("1995-04-02")).await;
+    sqlx::query("UPDATE sessions SET archived_at = '2026-10-02T00:00:00' WHERE id = 's1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let archived = paperwork::validate_readiness(
+        &pool,
+        "s1",
+        Readiness::Postponed,
+        Some("Peau irritée".into()),
+    )
+    .await
+    .unwrap_err();
+    assert!(archived.to_string().contains("archivée"));
+
+    sqlx::query("UPDATE sessions SET archived_at = NULL WHERE id = 's1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE clients SET archived_at = '2026-10-02T00:00:00' WHERE id = 'c1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let client = paperwork::validate_readiness(
+        &pool,
+        "s1",
+        Readiness::Postponed,
+        Some("Peau irritée".into()),
+    )
+    .await
+    .unwrap_err();
+    assert!(client.to_string().contains("client est archivé"));
+}
+
+#[tokio::test]
+async fn a_long_reason_is_refused() {
+    let pool = db(Some("1995-04-02")).await;
+    let reason = "a".repeat(501);
+    let error = paperwork::validate_readiness(&pool, "s1", Readiness::Postponed, Some(reason))
+        .await
+        .unwrap_err();
+    assert_eq!(error.to_string(), "Le motif est trop long");
 }

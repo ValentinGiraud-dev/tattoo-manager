@@ -9,7 +9,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::config::{AppPaths, AppPathsDto, AppSettings};
 use crate::database::Db;
-use crate::models::{Client, StockMovement};
+use crate::models::{Client, Readiness, StockMovement};
 use crate::services::audit::{self, AuditPage, AuditQuery};
 use crate::services::billing::{
     self, DepositInput, DepositView, PaymentInput, PaymentView, SessionBilling, SettleDepositInput,
@@ -216,6 +216,18 @@ pub async fn set_aftercare_explained(
     explained: bool,
 ) -> Result<SessionListItem, String> {
     sessions::set_aftercare_explained(&db.pool()?, &id, explained)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn validate_session_readiness(
+    db: State<'_, Db>,
+    session_id: String,
+    readiness: Readiness,
+    reason: Option<String>,
+) -> Result<SessionListItem, String> {
+    paperwork::validate_readiness(&db.pool()?, &session_id, readiness, reason)
         .await
         .map_err(|error| error.to_string())
 }

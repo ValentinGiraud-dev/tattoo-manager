@@ -134,24 +134,21 @@ export function DataTable<T>({
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-t border-line px-4 py-2.5 text-[13px] text-fg-muted">
         <p>{rangeLabel(current, rows.length, pageSize)}</p>
         <div className="flex items-center gap-2">
-          <span className="relative inline-flex items-center">
-            <select
-              aria-label="Résultats par page"
-              value={pageSize}
-              onChange={(event) => {
-                setPageSize(Number(event.target.value));
-                setPage(1);
-              }}
-              className="h-7 appearance-none rounded-md border border-line-strong bg-surface pr-7 pl-2 text-[13px] text-fg outline-none focus-visible:border-accent"
-            >
-              {PAGE_SIZES.map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-            <ChevronDown />
-          </span>
+          <select
+            aria-label="Résultats par page"
+            value={pageSize}
+            onChange={(event) => {
+              setPageSize(Number(event.target.value));
+              setPage(1);
+            }}
+            className="h-7 rounded-md border border-line-strong bg-surface pl-2 text-[13px] text-fg outline-none focus-visible:border-accent"
+          >
+            {PAGE_SIZES.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
           <span>par page</span>
         </div>
         <nav aria-label="Pagination" className="flex items-center justify-end gap-1">
@@ -353,23 +350,3 @@ function Chevron({ direction }: { direction: "previous" | "next" }) {
   );
 }
 
-function ChevronDown() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      aria-hidden="true"
-      className="pointer-events-none absolute right-2 text-fg-faint"
-    >
-      <path
-        d="M2.5 4.5 6 8l3.5-3.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}

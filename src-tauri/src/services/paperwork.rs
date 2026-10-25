@@ -11,10 +11,11 @@ use std::path::{Path, PathBuf};
 
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{Sqlite, SqlitePool, Transaction};
 
 use super::error::LotError;
-use super::sql::NOW;
+use super::sql::{clean, NOW};
+use crate::models::{Readiness, SessionStatus};
 use crate::security::files;
 use crate::security::vault::MasterKey;
 
@@ -456,6 +457,11 @@ pub struct Paperwork {
     pub health_signed: bool,
     pub consent_signed: bool,
     pub documents: Vec<SessionDocument>,
+    /// Décision validée. Vide tant que la tatoueuse n'a pas validé.
+    pub readiness: Option<Readiness>,
+    pub readiness_reason: Option<String>,
+    /// Heure UTC de la validation.
+    pub readiness_validated_at: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -465,11 +471,15 @@ struct SessionContext {
     first_name: String,
     last_name: String,
     birth_date: Option<String>,
+    readiness: Option<Readiness>,
+    readiness_reason: Option<String>,
+    readiness_validated_at: Option<String>,
 }
 
 async fn session_context(pool: &SqlitePool, session_id: &str) -> Result<SessionContext, LotError> {
     sqlx::query_as::<_, SessionContext>(
-        "SELECT s.date, s.status, c.first_name, c.last_name, c.birth_date
+        "SELECT s.date, s.status, c.first_name, c.last_name, c.birth_date,
+                s.readiness, s.readiness_reason, s.readiness_validated_at
          FROM sessions s INNER JOIN clients c ON c.id = s.client_id
          WHERE s.id = ?",
     )
@@ -573,7 +583,133 @@ pub async fn get_paperwork(pool: &SqlitePool, session_id: &str) -> Result<Paperw
         health_signed,
         consent_signed,
         documents,
+        readiness: context.readiness,
+        readiness_reason: context.readiness_reason,
+        readiness_validated_at: context.readiness_validated_at,
     })
+}
+
+const MAX_READINESS_REASON_CHARS: usize = 500;
+
+fn readiness_reason(
+    readiness: Readiness,
+    reason: Option<String>,
+) -> Result<Option<String>, LotError> {
+    let reason = clean(reason);
+    match readiness {
+        Readiness::Feasible if reason.is_some() => Err(LotError::Invalid(
+            "Le motif ne s'écrit que pour un report ou une prestation impossible",
+        )),
+        Readiness::Feasible => Ok(None),
+        Readiness::Postponed | Readiness::Impossible => {
+            let Some(reason) = reason else {
+                return Err(LotError::Invalid("Le motif est obligatoire"));
+            };
+            if reason.chars().count() > MAX_READINESS_REASON_CHARS {
+                return Err(LotError::Invalid("Le motif est trop long"));
+            }
+            Ok(Some(reason))
+        }
+    }
+}
+
+fn missing_signed_scans(health: bool, consent: bool) -> Option<&'static str> {
+    match (health, consent) {
+        (true, true) => None,
+        (false, false) => {
+            Some("Il manque le questionnaire de santé signé et le consentement signé")
+        }
+        (false, true) => Some("Il manque le questionnaire de santé signé"),
+        (true, false) => Some("Il manque le consentement signé"),
+    }
+}
+
+async fn has_signed_scan(
+    tx: &mut Transaction<'_, Sqlite>,
+    session_id: &str,
+    kind: DocumentKind,
+) -> Result<bool, LotError> {
+    let found: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM session_documents
+         WHERE session_id = ? AND kind = ? AND voided_at IS NULL LIMIT 1",
+    )
+    .bind(session_id)
+    .bind(kind)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(found.is_some())
+}
+
+/// Valide la décision sur les documents. Une seule fois : le choix, le motif
+/// et l'heure restent. « Reportée » ou « Annulée » change le statut dans la
+/// même écriture. La fiche de soin est notée comme transmise.
+pub async fn validate_readiness(
+    pool: &SqlitePool,
+    session_id: &str,
+    readiness: Readiness,
+    reason: Option<String>,
+) -> Result<crate::services::sessions::SessionListItem, LotError> {
+    let reason = readiness_reason(readiness, reason)?;
+    let mut tx = pool.begin().await?;
+    super::archive::ensure_session_writable(&mut tx, session_id).await?;
+
+    let current: Option<(SessionStatus, Option<String>)> =
+        sqlx::query_as("SELECT status, readiness_validated_at FROM sessions WHERE id = ?")
+            .bind(session_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some((status, validated_at)) = current else {
+        return Err(LotError::Invalid("La séance est introuvable"));
+    };
+    if validated_at.is_some() {
+        return Err(LotError::Invalid(
+            "Les documents de cette séance sont déjà validés",
+        ));
+    }
+    if readiness != Readiness::Feasible && status == SessionStatus::Completed {
+        return Err(LotError::Invalid(
+            "Une séance terminée ne peut plus être reportée ou annulée depuis les documents",
+        ));
+    }
+    if readiness == Readiness::Feasible {
+        let health = has_signed_scan(&mut tx, session_id, DocumentKind::HealthSigned).await?;
+        let consent = has_signed_scan(&mut tx, session_id, DocumentKind::ConsentSigned).await?;
+        if let Some(message) = missing_signed_scans(health, consent) {
+            return Err(LotError::Invalid(message));
+        }
+    }
+
+    let next_status = match readiness {
+        Readiness::Feasible => status,
+        Readiness::Postponed => SessionStatus::Rescheduled,
+        Readiness::Impossible => SessionStatus::Cancelled,
+    };
+    let sql = format!(
+        "UPDATE sessions
+         SET readiness = ?, readiness_reason = ?, readiness_validated_at = {NOW},
+             aftercare_explained = 1, status = ?, updated_at = {NOW}
+         WHERE id = ? AND readiness_validated_at IS NULL"
+    );
+    let updated = sqlx::query(&sql)
+        .bind(readiness)
+        .bind(&reason)
+        .bind(next_status)
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+    if updated.rows_affected() != 1 {
+        return Err(LotError::Invalid(
+            "Les documents de cette séance sont déjà validés",
+        ));
+    }
+    tx.commit().await?;
+    super::sessions::get_session(pool, session_id)
+        .await
+        .map_err(|error| match error {
+            super::sessions::SessionError::Invalid(message) => LotError::Invalid(message),
+            super::sessions::SessionError::NotFound => LotError::NotFound,
+            super::sessions::SessionError::Database => LotError::Database,
+        })
 }
 
 async fn save_form(

@@ -4,7 +4,7 @@ use sqlx::SqlitePool;
 use super::archive::{CLIENT_LOCKED, PROJECT_LOCKED, SESSION_LOCKED};
 use super::sql::{clean, is_iso_date, like_pattern, NOW};
 
-use crate::models::SessionStatus;
+use crate::models::{Readiness, SessionStatus};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,8 +70,14 @@ pub struct SessionListItem {
     pub body_area: Option<String>,
     pub description: Option<String>,
     pub notes: Option<String>,
-    /// La tatoueuse a expliqué les règles d'hygiène après le tatouage.
+    /// La fiche de soin a été notée comme transmise (validation des documents).
     pub aftercare_explained: bool,
+    /// Décision sur les documents. Vide tant qu'elle n'est pas validée.
+    pub readiness: Option<Readiness>,
+    /// Motif d'un report ou d'une prestation impossible.
+    pub readiness_reason: Option<String>,
+    /// Heure UTC de la validation. Une fois posée, la décision ne change plus.
+    pub readiness_validated_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub client_first_name: String,
@@ -250,6 +256,9 @@ const LIST_SELECT: &str = "SELECT
     s.description,
     s.notes,
     s.aftercare_explained,
+    s.readiness,
+    s.readiness_reason,
+    s.readiness_validated_at,
     s.created_at,
     s.updated_at,
     c.first_name AS client_first_name,

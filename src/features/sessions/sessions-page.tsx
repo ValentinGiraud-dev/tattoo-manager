@@ -14,21 +14,24 @@ import {
   type SessionListItem,
   type SessionStatus,
 } from "../../stores/sessions-store";
-import { useUIStore, type SessionIntent } from "../../stores/ui-store";
+import { useUIStore, type SessionFocus, type SessionIntent } from "../../stores/ui-store";
 import { ConsentFormView } from "./consent-form";
 import { HealthFormView } from "./health-form";
 import { SessionBilling } from "./session-billing";
+import { settleHeldDeposits } from "./session-status-flow";
 import { lowStockAfterLink } from "../../lib/low-stock";
 import { AuditHistory } from "../journal/audit-history";
 import { SessionForm, type SessionDraft } from "./session-form";
 import { SessionPaperwork } from "./session-paperwork";
-import { StatusBadge } from "./session-status";
+import { DocumentStatus, StatusBadge } from "./session-status";
 import { toast } from "../../stores/toast-store";
 import { BackButton } from "../../components/back-button";
 import { DataTable } from "../../components/data-table";
 import { ArchiveBanner, ArchiveFilter, ArchiveMention } from "../../components/archive-controls";
 
-type View = { kind: "list" } | { kind: "editor"; session?: SessionListItem; draft?: SessionDraft };
+type View =
+  | { kind: "list" }
+  | { kind: "editor"; session?: SessionListItem; draft?: SessionDraft; focus?: SessionFocus };
 
 function clientName(session: SessionListItem) {
   return `${session.clientFirstName} ${session.clientLastName}`;
@@ -141,10 +144,15 @@ function SessionTable({
           cell: (session) => blank(session.bodyArea),
         },
         {
-          id: "created",
-          header: "Créé le",
+          id: "documents",
+          header: "Documents",
           className: "w-[18%]",
-          cell: (session) => formatTimestamp(session.createdAt),
+          cell: (session) => (
+            <DocumentStatus
+              readiness={session.readiness}
+              validatedAt={session.readinessValidatedAt}
+            />
+          ),
         },
         {
           id: "status",
@@ -312,7 +320,7 @@ function SessionProducts({ session, readOnly }: { session: SessionListItem; read
   }
 
   return (
-    <section>
+    <section id="session-usages" className="scroll-mt-6">
       <div className="mb-2 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-[14px] font-medium">Produits utilisés</h2>
@@ -481,26 +489,32 @@ function sessionTitle(session: SessionListItem): string {
 function SessionEditor({
   session,
   draft,
+  focus,
   onBack,
   onSaved,
 }: {
   session?: SessionListItem;
   draft?: SessionDraft;
+  focus?: SessionFocus;
   onBack: () => void;
   onSaved: (session: SessionListItem) => void;
 }) {
   const [form, setForm] = useState<{ kind: FormKind; paperwork: Paperwork } | null>(null);
   const [paperworkVersion, setPaperworkVersion] = useState(0);
   const openClient = useUIStore((state) => state.openClient);
-  const { previewRemoval, remove, archive, restore, get, setAftercareExplained } =
-    useSessionsStore();
+  const { previewRemoval, remove, archive, restore, get } = useSessionsStore();
   const confirm = useConfirm();
   const guardedLeave = useGuardedLeave();
   const [busy, setBusy] = useState(false);
-  const [aftercareBusy, setAftercareBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [action, setAction] = useState<"delete" | "archive" | null>(null);
   const locked = session != null && (session.archivedAt !== null || session.clientArchived);
+
+  useEffect(() => {
+    if (!focus || !session) return;
+    const id = focus === "documents" ? "session-documents" : "session-usages";
+    document.getElementById(id)?.scrollIntoView({ block: "start" });
+  }, [focus, session]);
 
   useEffect(() => {
     if (!session || locked) return;
@@ -568,21 +582,14 @@ function SessionEditor({
     }
   }
 
-  async function setAftercare(explained: boolean) {
-    if (!session) return;
-    const previous = session;
-    setAftercareBusy(true);
-    onSaved({ ...session, aftercareExplained: explained });
-    setError(null);
+  async function onDocumentsValidated(saved: SessionListItem) {
+    onSaved(saved);
+    setPaperworkVersion((version) => version + 1);
+    if (saved.status !== "CANCELLED") return;
     try {
-      const saved = await setAftercareExplained(session.id, explained);
-      toast.success(explained ? "Conseils d’hygiène notés" : "Case d’hygiène retirée");
-      onSaved(saved);
-    } catch (aftercareError) {
-      onSaved(previous);
-      setError(String(aftercareError));
-    } finally {
-      setAftercareBusy(false);
+      await settleHeldDeposits(confirm, saved);
+    } catch (settleError) {
+      setError(String(settleError));
     }
   }
 
@@ -679,9 +686,7 @@ function SessionEditor({
               key={`${paperworkVersion}-${session.status}`}
               sessionId={session.id}
               readOnly={locked}
-              aftercareExplained={session.aftercareExplained}
-              aftercareBusy={aftercareBusy}
-              onAftercareExplained={(explained) => void setAftercare(explained)}
+              onValidated={(saved) => onDocumentsValidated(saved)}
               onOpenForm={(kind, paperwork) => setForm({ kind, paperwork })}
             />
           )}
@@ -777,7 +782,7 @@ export default function SessionsPage() {
     const intent = takeSessionIntent();
     if (!intent || intent.kind === "new") return;
     void getSession(intent.sessionId)
-      .then((session) => setView({ kind: "editor", session }))
+      .then((session) => setView({ kind: "editor", session, focus: intent.focus }))
       .catch(() => setView({ kind: "list" }));
   }, [sessionIntent, takeSessionIntent, getSession]);
 
@@ -787,6 +792,7 @@ export default function SessionsPage() {
         key={view.session?.id ?? "new"}
         session={view.session}
         draft={view.draft}
+        focus={view.focus}
         onBack={() => setView({ kind: "list" })}
         onSaved={(session) => setView({ kind: "editor", session })}
       />

@@ -465,6 +465,20 @@ Session (ajout)
 
 * La tatoueuse coche qu'elle a expliqué les règles d'hygiène après le tatouage. Le contenu de ces règles n'est pas enregistré.
 * Les séances déjà présentes partent décochées. Une séance ou un client archivé refuse le changement.
+* Depuis la validation des documents (migration 019), cette case n'est plus à l'écran : la validation la coche, parce que la fiche de soin est notée comme transmise.
+
+Décision sur les documents (migration 019)
+
+Session (ajout)
+├── readiness                 FEASIBLE, POSTPONED ou IMPOSSIBLE ; vide tant que ce n'est pas validé
+├── readiness_reason          motif, obligatoire pour POSTPONED et IMPOSSIBLE, vide pour FEASIBLE
+└── readiness_validated_at    heure UTC, posée une fois
+
+* Réalisable (`FEASIBLE`) : le questionnaire de santé signé et le consentement signé sont joints. Le statut de la séance ne change pas.
+* Décaler (`POSTPONED`) : motif obligatoire (document manquant, avis médical, peau irritée…). La séance passe en Reportée.
+* Pas possible (`IMPOSSIBLE`) : motif obligatoire. La séance passe en Annulée. L'acompte encore en attente est traité ensuite, comme pour une annulation.
+* Une séance terminée refuse le report et l'annulation depuis les documents. Une séance ou un client archivé refuse la validation.
+* Le choix, le motif et l'heure ne se réécrivent pas. Le statut de la séance, lui, reste modifiable (une séance reportée peut être replanifiée).
 
 Verrous de traçabilité
 

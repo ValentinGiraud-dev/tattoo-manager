@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
+import type { Readiness } from "./sessions-store";
 
 export type YesNo = boolean | null;
 
@@ -100,6 +101,9 @@ export interface Paperwork {
   healthSigned: boolean;
   consentSigned: boolean;
   documents: SessionDocument[];
+  readiness: Readiness | null;
+  readinessReason: string | null;
+  readinessValidatedAt: string | null;
 }
 
 export const emptyHealthAnswers = (): HealthAnswers => ({

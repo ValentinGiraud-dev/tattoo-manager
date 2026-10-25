@@ -200,6 +200,7 @@ function NewLotForm({
             Numéro de lot *
             <input
               required
+              autoFocus={fixedSheet !== undefined}
               value={lotNumber}
               onChange={(event) => {
                 setLotNumber(event.target.value);
@@ -283,22 +284,7 @@ function NewLotForm({
         >
           {saving ? "Enregistrement…" : "Enregistrer la réception"}
         </button>
-        <button
-          type="button"
-          onClick={
-            fixedSheet
-              ? () => {
-                  setLotNumber("");
-                  setExisting(null);
-                  setExpirationDate(null);
-                  setCreationDate(null);
-                  setQuantity("1");
-                  setError(null);
-                }
-              : leave
-          }
-          className={btnGhost}
-        >
+        <button type="button" onClick={leave} className={btnGhost}>
           Annuler
         </button>
       </div>

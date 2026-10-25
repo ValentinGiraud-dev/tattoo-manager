@@ -47,8 +47,8 @@ test("créer Aiguilles › RL, y ranger un lot et filtrer la liste", async ({ pa
   await expect(page.getByRole("heading", { name: "Aiguille 3RL" })).toBeVisible();
   await expect(page.getByText("Aiguilles › RL", { exact: true })).toBeVisible();
 
-  // Réception d'un lot depuis la fiche : les champs sont déjà là, la fiche est choisie.
-  await expect(page.getByRole("heading", { name: "Ajouter un lot pour ce produit" })).toBeVisible();
+  // Réception d'un lot depuis la fiche : le formulaire se déplie, la fiche est déjà choisie.
+  await page.getByRole("button", { name: "Ajouter un lot" }).click();
   await page.getByLabel("Numéro de lot *").fill("A-1");
   await page.getByRole("button", { name: "Date d'expiration *" }).click();
   await page

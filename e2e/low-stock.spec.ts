@@ -45,7 +45,7 @@ test("un seuil par produit sur la catégorie s'applique, l'accueil prévient et 
   await panel.getByRole("button", { name: /Gants nitrile M/ }).click();
   await expect(page.getByRole("heading", { name: "Gants nitrile M" })).toBeVisible();
   await page.getByRole("button", { name: "← Accueil" }).click();
-  await expect(page.getByRole("heading", { name: "Aujourd’hui" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
 });
 
 test("« Pas d'alerte » sur une fiche l'emporte sur sa catégorie", async ({ page }) => {

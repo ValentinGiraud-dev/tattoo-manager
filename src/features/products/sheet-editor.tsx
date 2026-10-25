@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
 import { ArchiveBanner, ArchiveMention } from "../../components/archive-controls";
 import { BackButton } from "../../components/back-button";
-import { btnGhost, btnPrimary, cardClass } from "../../components/styles";
+import { btnPrimary, cardClass } from "../../components/styles";
 import { useConfirm } from "../../components/use-confirm";
 import { useGuardedLeave } from "../../components/unsaved-changes";
 import { formatIsoDate } from "../../lib/format";
 import { SESSION_STATUS_LABELS } from "../../lib/labels";
-import { sheetThresholdLabel } from "../../lib/low-stock";
-import { sheetSummary } from "../../lib/product-sheets";
 import type { SessionStatus } from "../../stores/sessions-store";
 import {
   useProductsStore,
@@ -20,6 +18,7 @@ import { useUIStore } from "../../stores/ui-store";
 import { AuditHistory } from "../journal/audit-history";
 import { LotForm } from "./lot-form";
 import { LotRow } from "./lot-row";
+import { SheetFacts } from "./sheet-facts";
 import { SheetForm } from "./sheet-form";
 
 type LinkedSession = LotSessionItem & { lotNumber: string };
@@ -32,8 +31,9 @@ type Loaded = {
 };
 
 /**
- * Création et fiche d'un produit : le formulaire à gauche, la réception et les
- * séances à droite, l'historique puis Supprimer ou Archiver en dessous.
+ * Création et fiche d'un produit. Une fiche déjà enregistrée s'ouvre en lecture :
+ * le crayon passe au formulaire. Les lots sont une liste ; « Ajouter un lot »
+ * déplie la réception dans la carte.
  */
 export function SheetEditor({
   sheet,
@@ -61,32 +61,24 @@ export function SheetEditor({
     previewSheetRemoval,
     archiveSheet,
     restoreSheet,
+    previewLotRemoval,
+    deleteLot,
+    archiveLot,
   } = useProductsStore();
   const openSession = useUIStore((state) => state.openSession);
   const confirm = useConfirm();
   const guardedLeave = useGuardedLeave();
   const archived = sheet?.archivedAt != null;
-  const key = sheet ? `${sheet.id}:${sheet.updatedAt}:${sheet.lotCount}:${sheet.stock}` : "";
+  const [editing, setEditing] = useState(sheet === undefined);
+  const [addingLot, setAddingLot] = useState(false);
+  const [lotsReload, setLotsReload] = useState(0);
+  const key = sheet
+    ? `${sheet.id}:${sheet.updatedAt}:${sheet.lotCount}:${sheet.stock}:${lotsReload}`
+    : "";
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [action, setAction] = useState<"delete" | "archive" | null>(null);
   const fresh = loaded?.key === key ? loaded : null;
-
-  useEffect(() => {
-    if (!sheet || archived) return;
-    let cancelled = false;
-    previewSheetRemoval(sheet.id)
-      .then((preview) => {
-        if (!cancelled) setAction(preview.canDelete ? "delete" : "archive");
-      })
-      .catch(() => {
-        if (!cancelled) setAction(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [archived, previewSheetRemoval, sheet]);
 
   useEffect(() => {
     if (!sheet) return;
@@ -189,8 +181,73 @@ export function SheetEditor({
     if (!sheet) return;
     try {
       onSaved(await getSheet(sheet.id));
+      setLotsReload((current) => current + 1);
     } catch (receiveError) {
       setError(String(receiveError));
+    }
+  }
+
+  function finishSheet(saved?: ProductSheet) {
+    if (saved) {
+      setEditing(false);
+      onSaved(saved);
+      return;
+    }
+    if (sheet) {
+      setEditing(false);
+      return;
+    }
+    onBack();
+  }
+
+  async function removeLot(lot: LotSummary) {
+    let preview;
+    try {
+      preview = await previewLotRemoval(lot.id);
+    } catch (previewError) {
+      setError(String(previewError));
+      return;
+    }
+    if (preview.canDelete) {
+      const ok = await confirm({
+        title: "Supprimer ce lot ?",
+        details: [`${lot.name} · lot ${lot.lotNumber}`],
+        body: "Le lot, ses pièces et les entrées de stock d'ouverture seront supprimés. Cette action est irréversible.",
+        confirmLabel: "Supprimer le lot",
+        tone: "danger",
+      });
+      if (!ok) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await deleteLot(lot.id);
+        toast.success("Lot supprimé");
+        await received();
+      } catch (deleteError) {
+        setError(String(deleteError));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    const ok = await confirm({
+      title: "Archiver ce lot ?",
+      details: [`${lot.name} · lot ${lot.lotNumber}`, `${lot.stock} en stock`],
+      body: "Il quitte le stock, les alertes et le sélecteur des séances. La quantité reste inscrite sur le lot. Ses séances restent dans l'historique, avec la mention « lot archivé ».",
+      confirmLabel: "Archiver le lot",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await archiveLot(lot.id);
+      toast.success("Lot archivé");
+      await received();
+    } catch (archiveError) {
+      setError(String(archiveError));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -222,10 +279,6 @@ export function SheetEditor({
         </ArchiveBanner>
       )}
 
-      {sheet && <p className="text-[13px] text-fg-muted">{sheetSummary(sheet)}</p>}
-      {sheet?.categoryPath && <p className="text-[13px] text-fg-muted">{sheet.categoryPath}</p>}
-      {sheet && <p className="text-[12.5px] text-fg-muted">{sheetThresholdLabel(sheet)}</p>}
-
       {sheet?.lowStock && sheet.alertThreshold !== null && (
         <p
           role="note"
@@ -238,40 +291,46 @@ export function SheetEditor({
       )}
 
       <div className="grid items-start gap-8 lg:grid-cols-2">
-        <SheetForm
-          sheet={sheet}
-          fromLot={fromLot}
-          defaultCategoryId={defaultCategoryId}
-          locked={archived}
-          onDone={(saved) => (saved ? onSaved(saved) : onBack())}
-        />
+        {sheet && !editing ? (
+          <SheetFacts
+            sheet={sheet}
+            busy={busy}
+            onEdit={() => setEditing(true)}
+            onRemove={() => void removeOrArchive()}
+          />
+        ) : sheet ? (
+          <section className={`${cardClass} p-5`}>
+            <h2 className="mb-4 text-[14px] font-medium">Modifier le produit</h2>
+            <SheetForm sheet={sheet} locked={archived} onDone={finishSheet} />
+          </section>
+        ) : (
+          <SheetForm fromLot={fromLot} defaultCategoryId={defaultCategoryId} onDone={finishSheet} />
+        )}
 
         {sheet ? (
           <div className="flex flex-col gap-6">
-            {!archived && (
-              <section className={`${cardClass} flex flex-col gap-4 p-5`}>
-                <h2 className="text-[14px] font-medium">Ajouter un lot pour ce produit</h2>
-                <LotForm fixedSheet={sheet} onDone={(saved) => saved && void received()} />
-              </section>
-            )}
-            <section>
-              <h2 className="mb-2 text-[14px] font-medium">Lots reçus</h2>
+            <section className={`${cardClass} overflow-hidden`}>
               {fresh === null ? (
-                <p className="text-[13px] text-fg-muted">Chargement…</p>
+                <p className="px-4 py-3 text-[13px] text-fg-muted">Chargement…</p>
               ) : fresh.error ? (
-                <p role="alert" className="text-[13px] text-danger">
+                <p role="alert" className="px-4 py-3 text-[13px] text-danger">
                   {fresh.error}
                 </p>
               ) : fresh.lots.length === 0 ? (
-                <p className="text-[13px] text-fg-muted">Aucun lot reçu.</p>
+                <p className="px-4 py-3 text-[13px] text-fg-muted">Aucun lot reçu.</p>
               ) : (
-                <ul className={`${cardClass} divide-y divide-line overflow-hidden`}>
+                <ul className="divide-y divide-line">
                   {fresh.lots.map((lot) => (
                     <li key={lot.id}>
                       <LotRow
                         lot={lot}
                         title={`Lot ${lot.lotNumber}`}
                         onOpen={() => onOpenLot(lot)}
+                        onRemove={
+                          archived || lot.archivedAt ? undefined : () => void removeLot(lot)
+                        }
+                        removeLabel={`Supprimer ou archiver le lot ${lot.lotNumber}`}
+                        removeDisabled={busy}
                       >
                         exp. {formatIsoDate(lot.expirationDate)}
                         {lot.archivedAt ? " · lot archivé" : ""}
@@ -280,6 +339,27 @@ export function SheetEditor({
                   ))}
                 </ul>
               )}
+              {!archived &&
+                (addingLot ? (
+                  <div className="border-t border-line p-5">
+                    <LotForm
+                      fixedSheet={sheet}
+                      onDone={(saved) => {
+                        setAddingLot(false);
+                        if (saved) void received();
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setAddingLot(true)}
+                    className="flex w-full items-center justify-center gap-1.5 border-t border-dashed border-line px-4 py-3 text-[13px] text-fg-muted hover:bg-surface-2 hover:text-fg"
+                  >
+                    <span aria-hidden="true">+</span>
+                    Ajouter un lot
+                  </button>
+                ))}
             </section>
             <section>
               <h2 className="mb-2 text-[14px] font-medium">Séances liées</h2>
@@ -332,8 +412,8 @@ export function SheetEditor({
               {error}
             </p>
           )}
-          <div>
-            {archived ? (
+          {archived && (
+            <div>
               <button
                 type="button"
                 onClick={() => void unarchive()}
@@ -342,19 +422,8 @@ export function SheetEditor({
               >
                 {busy ? "Désarchivage…" : "Désarchiver"}
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void removeOrArchive()}
-                disabled={busy}
-                className={btnGhost}
-              >
-                <span className="text-danger">
-                  {busy ? "En cours…" : action === "delete" ? "Supprimer" : "Archiver"}
-                </span>
-              </button>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
     </div>

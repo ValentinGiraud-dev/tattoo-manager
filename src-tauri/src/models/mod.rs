@@ -7,7 +7,7 @@ mod unit;
 
 pub use client::Client;
 pub use lot::Lot;
-pub use session::{Session, SessionStatus};
+pub use session::{Readiness, Session, SessionStatus};
 pub use session_usage::SessionUsage;
 pub use stock_movement::StockMovement;
 pub use unit::Unit;
@@ -35,6 +35,25 @@ mod tests {
                 "CANCELLED".to_string(),
                 "RESCHEDULED".to_string(),
                 "NO_SHOW".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn readiness_matches_the_sql_check() {
+        let labels = [
+            Readiness::Feasible,
+            Readiness::Postponed,
+            Readiness::Impossible,
+        ]
+        .map(|readiness| serde_json::to_value(readiness).unwrap());
+
+        assert_eq!(
+            labels.map(|value| value.as_str().unwrap().to_string()),
+            [
+                "FEASIBLE".to_string(),
+                "POSTPONED".to_string(),
+                "IMPOSSIBLE".to_string(),
             ]
         );
     }

@@ -12,7 +12,7 @@ test("la date d'ouverture d'une pièce se choisit au-dessus de la liste", async 
   await page.getByLabel("Durée après ouverture (mois)").fill("12");
   await page.getByRole("button", { name: "Ajouter", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Dynamic Noir" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Ajouter un lot pour ce produit" })).toBeVisible();
+  await page.getByRole("button", { name: "Ajouter un lot" }).click();
 
   await page.getByLabel("Numéro de lot *").fill("N-1");
   await page.getByRole("button", { name: "Date d'expiration *" }).click();

@@ -25,6 +25,7 @@ Trois niveaux. Choisis selon l'effet de l'action, pas selon l'écran.
 - enregistrer un mouvement de stock manuel (perte, ajustement, retour) ;
 - annuler un mouvement ou un lien ;
 - passer une séance à « Annulée » ou « Absent » (puis demander le sort de l'acompte en attente : garder, perdu, rembourser) ;
+- valider les documents d'une séance (Réalisable, Pas possible ou Décaler) : le choix, le motif et l'heure sont définitifs ; Pas possible annule la séance et demande ensuite le sort de l'acompte ; Décaler la passe en Reportée ;
 - déduire un acompte, le déclarer perdu ou remboursé, annuler un acompte, une issue ou un paiement (motif) ;
 - enregistrer une séance sur un créneau déjà occupé (avertissement, pas un blocage) ;
 - utiliser un lot ou un flacon périmé (avertissement explicite, pas un blocage) ;
