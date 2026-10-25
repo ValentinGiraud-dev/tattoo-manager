@@ -349,4 +349,3 @@ function Chevron({ direction }: { direction: "previous" | "next" }) {
     </svg>
   );
 }
-
