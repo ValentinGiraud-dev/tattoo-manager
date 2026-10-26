@@ -3,8 +3,14 @@ import { expect, test } from "./fixtures";
 test("le journal liste les écritures, se filtre et ouvre la fiche concernée", async ({ page }) => {
   await page
     .getByRole("navigation", { name: "Navigation principale" })
-    .getByRole("button", { name: "Journal" })
+    .getByRole("button", { name: "Paramètres" })
     .click();
+  await expect(
+    page.getByRole("navigation", { name: "Navigation principale" }).getByRole("button", {
+      name: "Journal",
+    }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Ouvrir le journal" }).click();
   await expect(page.getByRole("heading", { name: "Journal", level: 1 })).toBeVisible();
 
   const changed = page.getByRole("listitem").filter({ hasText: "Client modifié" });

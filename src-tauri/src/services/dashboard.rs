@@ -14,8 +14,12 @@ use super::low_stock::{self, LowStockReport};
 use super::sql::is_iso_date;
 use crate::models::SessionStatus;
 
-/// Un produit en stock est signalé quand sa limite tombe dans ce délai.
+/// Délai d'une fiche qui n'en a pas choisi, et d'un lot sans fiche.
 pub const EXPIRY_WARNING_DAYS: i64 = 30;
+/// Borne de saisie (pas une règle d'hygiène) : au-delà, le délai est refusé.
+pub const MAX_EXPIRY_WARNING_DAYS: i64 = 3_650;
+pub const EXPIRY_WARNING_INVALID: &str =
+    "Le délai d'alerte doit être un nombre entier de jours, entre 1 et 3 650";
 /// Une séance terminée sans documents signés est signalée pendant ce délai.
 pub const UNSIGNED_LOOKBACK_DAYS: i64 = 30;
 /// Séances à venir montrées sur l'accueil.
@@ -119,9 +123,51 @@ pub struct ExpiringItem {
     pub expired: bool,
 }
 
+/// Avis du bandeau d'une fiche : l'élément le plus urgent, et combien d'autres.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpiryNotice {
+    pub expired: bool,
+    pub lot_number: String,
+    pub useful_until: String,
+    pub extra: i64,
+}
+
+/// Délai appliqué : `0` coupe l'alerte anticipée, vide vaut [`EXPIRY_WARNING_DAYS`].
+pub(crate) fn applied_warning_days(setting: Option<i64>) -> i64 {
+    match setting {
+        Some(0) => 0,
+        Some(days) if days > 0 => days,
+        _ => EXPIRY_WARNING_DAYS,
+    }
+}
+
+/// `None`, `0` (pas d'alerte anticipée) ou un nombre de jours dans la borne.
+pub(crate) fn check_warning_days(days: Option<i64>) -> Result<Option<i64>, LotError> {
+    match days {
+        Some(value) if !(0..=MAX_EXPIRY_WARNING_DAYS).contains(&value) => {
+            Err(LotError::Invalid(EXPIRY_WARNING_INVALID))
+        }
+        other => Ok(other),
+    }
+}
+
+fn within_warning(useful_until: &str, today: NaiveDate, days: i64) -> bool {
+    days > 0 && useful_until <= day(today + Duration::days(days)).as_str()
+}
+
+/// Produit en stock, avec le délai de sa fiche (vide : lot sans fiche).
+pub(crate) struct StockItem {
+    pub product_id: Option<String>,
+    pub expiry_warning_days: Option<i64>,
+    pub view: ExpiringItem,
+}
+
 #[derive(sqlx::FromRow)]
 struct StockRow {
     lot_id: String,
+    product_id: Option<String>,
+    expiry_warning_days: Option<i64>,
     name: String,
     lot_number: String,
     expiration_date: String,
@@ -132,19 +178,26 @@ struct StockRow {
 }
 
 /// Produits en stock (lots d'usage unique, pièces ouvertes, pièces scellées).
-async fn stock_items(pool: &SqlitePool, today: NaiveDate) -> Result<Vec<ExpiringItem>, LotError> {
+pub(crate) async fn stock_items(
+    pool: &SqlitePool,
+    today: NaiveDate,
+) -> Result<Vec<StockItem>, LotError> {
     let rows = sqlx::query_as::<_, StockRow>(
-        "SELECT l.id AS lot_id, l.name, l.lot_number, l.expiration_date, l.after_opening_months,
+        "SELECT l.id AS lot_id, l.product_id, p.expiry_warning_days, l.name, l.lot_number,
+                l.expiration_date, l.after_opening_months,
                 NULL AS opened_at, 1 AS single_use,
                 (SELECT COALESCE(SUM(m.quantity), 0) FROM stock_movements m
                   WHERE m.lot_id = l.id AND m.unit_id IS NULL) AS count
          FROM lots l
+         LEFT JOIN product_sheets p ON p.id = l.product_id
          WHERE l.single_use = 1 AND l.archived_at IS NULL
          UNION ALL
-         SELECT l.id, l.name, l.lot_number, l.expiration_date, l.after_opening_months,
+         SELECT l.id, l.product_id, p.expiry_warning_days, l.name, l.lot_number,
+                l.expiration_date, l.after_opening_months,
                 u.opened_at, 0, COUNT(*)
          FROM units u
          INNER JOIN lots l ON l.id = u.lot_id AND l.archived_at IS NULL
+         LEFT JOIN product_sheets p ON p.id = l.product_id
          WHERE (SELECT COALESCE(SUM(m.quantity), 0) FROM stock_movements m
                  WHERE m.unit_id = u.id) > 0
          GROUP BY l.id, u.opened_at",
@@ -152,7 +205,7 @@ async fn stock_items(pool: &SqlitePool, today: NaiveDate) -> Result<Vec<Expiring
     .fetch_all(pool)
     .await?;
 
-    let mut items: Vec<ExpiringItem> = rows
+    let mut items: Vec<StockItem> = rows
         .into_iter()
         .filter(|row| row.count > 0)
         .map(|row| {
@@ -161,28 +214,70 @@ async fn stock_items(pool: &SqlitePool, today: NaiveDate) -> Result<Vec<Expiring
                 row.opened_at.as_deref(),
                 row.after_opening_months,
             );
-            ExpiringItem {
-                expired: expiry::is_expired(&useful_until, today),
-                kind: match (row.single_use, row.opened_at.is_some()) {
-                    (true, _) => "LOT",
-                    (false, true) => "OPENED",
-                    (false, false) => "SEALED",
+            StockItem {
+                product_id: row.product_id,
+                expiry_warning_days: row.expiry_warning_days,
+                view: ExpiringItem {
+                    expired: expiry::is_expired(&useful_until, today),
+                    kind: match (row.single_use, row.opened_at.is_some()) {
+                        (true, _) => "LOT",
+                        (false, true) => "OPENED",
+                        (false, false) => "SEALED",
+                    },
+                    lot_id: row.lot_id,
+                    name: row.name,
+                    lot_number: row.lot_number,
+                    count: row.count,
+                    opened_at: row.opened_at,
+                    useful_until,
                 },
-                lot_id: row.lot_id,
-                name: row.name,
-                lot_number: row.lot_number,
-                count: row.count,
-                opened_at: row.opened_at,
-                useful_until,
             }
         })
         .collect();
     items.sort_by(|a, b| {
-        a.useful_until
-            .cmp(&b.useful_until)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        a.view
+            .useful_until
+            .cmp(&b.view.useful_until)
+            .then_with(|| a.view.name.to_lowercase().cmp(&b.view.name.to_lowercase()))
     });
     Ok(items)
+}
+
+/// Élément le plus urgent de la fiche (périmé d'abord), et le nombre d'autres.
+pub(crate) fn expiry_notice(
+    items: &[StockItem],
+    sheet_id: &str,
+    today: NaiveDate,
+) -> Option<ExpiryNotice> {
+    let mut relevant: Vec<&StockItem> = items
+        .iter()
+        .filter(|item| item.product_id.as_deref() == Some(sheet_id))
+        .filter(|item| {
+            item.view.expired
+                || within_warning(
+                    &item.view.useful_until,
+                    today,
+                    applied_warning_days(item.expiry_warning_days),
+                )
+        })
+        .collect();
+    if relevant.is_empty() {
+        return None;
+    }
+    relevant.sort_by(|a, b| {
+        b.view
+            .expired
+            .cmp(&a.view.expired)
+            .then_with(|| a.view.useful_until.cmp(&b.view.useful_until))
+            .then_with(|| a.view.lot_number.cmp(&b.view.lot_number))
+    });
+    let first = relevant[0].view.clone();
+    Some(ExpiryNotice {
+        expired: first.expired,
+        lot_number: first.lot_number,
+        useful_until: first.useful_until,
+        extra: (relevant.len() - 1) as i64,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -203,7 +298,7 @@ pub struct DepositToSettle {
 pub struct Alerts {
     /// En stock alors que la limite est passée : à sortir du stock.
     pub expired: Vec<ExpiringItem>,
-    /// Limite dans moins de `EXPIRY_WARNING_DAYS` jours.
+    /// Limite dans le délai de la fiche (vide : `EXPIRY_WARNING_DAYS`).
     pub expiring_soon: Vec<ExpiringItem>,
     /// Séances passées encore « planifiées » : statut à mettre à jour.
     pub sessions_to_close: Vec<DaySessionView>,
@@ -304,11 +399,15 @@ pub async fn get_dashboard(pool: &SqlitePool, today: NaiveDate) -> Result<Dashbo
     .await?;
 
     let stock = stock_items(pool, today).await?;
-    let warning_limit = day(today + Duration::days(EXPIRY_WARNING_DAYS));
-    let (expired, expiring_soon): (Vec<_>, Vec<_>) = stock
-        .into_iter()
-        .filter(|item| item.useful_until <= warning_limit)
-        .partition(|item| item.expired);
+    let (mut expired, mut expiring_soon) = (Vec::new(), Vec::new());
+    for item in stock {
+        let days = applied_warning_days(item.expiry_warning_days);
+        if item.view.expired {
+            expired.push(item.view);
+        } else if within_warning(&item.view.useful_until, today, days) {
+            expiring_soon.push(item.view);
+        }
+    }
 
     let sessions_to_close = sessions_where(
         pool,

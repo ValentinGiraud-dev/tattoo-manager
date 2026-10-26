@@ -350,6 +350,7 @@ async fn sheet_without_lots_is_deleted_and_one_with_lots_is_archived() {
             after_opening_months: None,
             product_url: None,
             low_stock_threshold: None,
+            expiry_warning_days: None,
         },
         Vec::new(),
     )
@@ -369,6 +370,7 @@ async fn sheet_without_lots_is_deleted_and_one_with_lots_is_archived() {
             after_opening_months: None,
             product_url: None,
             low_stock_threshold: None,
+            expiry_warning_days: None,
         },
         Vec::new(),
     )

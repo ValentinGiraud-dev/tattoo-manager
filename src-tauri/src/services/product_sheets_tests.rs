@@ -7,12 +7,14 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Connection, SqlitePool};
 
 use super::categories::{self, CategoryInput};
+use super::dashboard::EXPIRY_WARNING_INVALID;
 use super::lots::{self, CreateLotInput, UpdateLotInput};
 use super::product_sheets::{
     self, ProductSheetInput, SHEET_GONE, SHEET_HAS_LOTS, SHEET_TAKEN, TYPE_LOCKED, TYPE_MISMATCH,
 };
 use super::session_usages::{self, LinkSessionInput};
 use super::sessions::{self, SessionInput};
+use super::units;
 use crate::models::SessionStatus;
 
 async fn memory_pool() -> SqlitePool {
@@ -41,6 +43,7 @@ fn sheet(name: &str, brand: Option<&str>, single_use: bool) -> ProductSheetInput
         after_opening_months: if single_use { None } else { Some(12) },
         product_url: None,
         low_stock_threshold: None,
+        expiry_warning_days: None,
     }
 }
 
@@ -581,4 +584,128 @@ async fn migration_013_leaves_existing_lots_untouched() {
         .await
         .unwrap();
     assert_eq!(audit_after, audit_before);
+}
+
+fn day(date: chrono::NaiveDate) -> String {
+    date.format("%Y-%m-%d").to_string()
+}
+
+#[tokio::test]
+async fn a_sheet_warns_before_expiry_and_keeps_flagging_what_is_already_expired() {
+    let pool = db().await;
+    let today = chrono::Local::now().date_naive();
+    let created = product_sheets::create_sheet(&pool, sheet("Gants", None, true), vec![])
+        .await
+        .unwrap();
+    assert_eq!(created.expiry_warning_days, None);
+    assert_eq!(created.expiry_alert_days, 30);
+    assert!(created.expiry_notice.is_none());
+
+    for (number, expiration) in [
+        ("PERIME", "2020-01-01"),
+        ("PROCHE", day(today + chrono::Duration::days(10)).as_str()),
+        ("LOIN", day(today + chrono::Duration::days(40)).as_str()),
+    ] {
+        lots::create_lot(
+            &pool,
+            CreateLotInput {
+                product_id: Some(created.id.clone()),
+                lot_number: number.into(),
+                expiration_date: expiration.into(),
+                ..lot("", number, true, 2)
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let view = product_sheets::get_sheet(&pool, &created.id).await.unwrap();
+    let notice = view.expiry_notice.expect("périmé et bientôt");
+    assert!(notice.expired);
+    assert_eq!(notice.lot_number, "PERIME");
+    assert_eq!(notice.useful_until, "2020-01-01");
+    // Le lot à 40 jours est hors des 30 jours ; seul le lot à 10 jours s'ajoute.
+    assert_eq!(notice.extra, 1);
+
+    let narrowed = product_sheets::update_sheet(
+        &pool,
+        &created.id,
+        ProductSheetInput {
+            expiry_warning_days: Some(5),
+            ..sheet("Gants", None, true)
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(narrowed.expiry_alert_days, 5);
+    let notice = narrowed.expiry_notice.unwrap();
+    assert!(notice.expired);
+    assert_eq!(notice.extra, 0);
+
+    let silent = product_sheets::update_sheet(
+        &pool,
+        &created.id,
+        ProductSheetInput {
+            expiry_warning_days: Some(0),
+            ..sheet("Gants", None, true)
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(silent.expiry_alert_days, 0);
+    let notice = silent.expiry_notice.unwrap();
+    assert!(notice.expired);
+    assert_eq!(notice.extra, 0);
+
+    for days in [Some(-1), Some(3_651)] {
+        let error = product_sheets::update_sheet(
+            &pool,
+            &created.id,
+            ProductSheetInput {
+                expiry_warning_days: days,
+                ..sheet("Gants", None, true)
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.to_string(), EXPIRY_WARNING_INVALID);
+    }
+}
+
+#[tokio::test]
+async fn an_opened_piece_is_warned_on_its_useful_limit() {
+    let pool = db().await;
+    let today = chrono::Local::now().date_naive();
+    let limit = today + chrono::Duration::days(5);
+    let opened = limit
+        .checked_sub_months(chrono::Months::new(12))
+        .expect("douze mois plus tôt");
+    let created = product_sheets::create_sheet(&pool, sheet("Encre", None, false), vec![])
+        .await
+        .unwrap();
+    let received = lots::create_lot(
+        &pool,
+        CreateLotInput {
+            product_id: Some(created.id.clone()),
+            lot_number: "ENC-1".into(),
+            expiration_date: "2030-01-01".into(),
+            ..lot("", "ENC-1", false, 2)
+        },
+    )
+    .await
+    .unwrap();
+    let pieces = units::list_units(&pool, &received.id).await.unwrap();
+    units::open_unit(&pool, &pieces[0].id, day(opened))
+        .await
+        .unwrap();
+
+    let notice = product_sheets::get_sheet(&pool, &created.id)
+        .await
+        .unwrap()
+        .expiry_notice
+        .expect("pièce ouverte bientôt périmée");
+    assert!(!notice.expired);
+    assert_eq!(notice.lot_number, "ENC-1");
+    assert_eq!(notice.useful_until, day(limit));
+    assert_eq!(notice.extra, 0);
 }

@@ -8,6 +8,7 @@ use super::billing::{self, DepositInput, PaymentInput, PaymentMethod};
 use super::dashboard;
 use super::exports::{self, ExportKind};
 use super::lots::{self, CreateLotInput};
+use super::product_sheets::{self, ProductSheetInput};
 use super::session_usages::{self, LinkSessionInput, VoidUsageInput};
 use super::sessions::{self, SessionInput};
 use super::units;
@@ -108,6 +109,19 @@ async fn deposit(pool: &SqlitePool, session_id: &str, cents: i64, on: &str) -> S
     .await
     .unwrap()
     .id
+}
+
+async fn receive(pool: &SqlitePool, sheet_id: Option<String>, number: &str, expiration: &str) {
+    lots::create_lot(
+        pool,
+        CreateLotInput {
+            product_id: sheet_id,
+            lot_number: number.into(),
+            ..lot(number, expiration, true, 2)
+        },
+    )
+    .await
+    .unwrap();
 }
 
 fn lot(name: &str, expiration: &str, single_use: bool, quantity: i64) -> CreateLotInput {
@@ -350,6 +364,54 @@ async fn products_in_stock_are_flagged_before_and_after_their_limit() {
             ("Bientôt", "LOT", "2026-11-01")
         ]
     );
+}
+
+#[tokio::test]
+async fn each_sheet_uses_its_own_expiry_warning() {
+    let pool = db().await;
+    let sheet = |name: &str, days: Option<i64>| ProductSheetInput {
+        name: name.into(),
+        brand: None,
+        category_id: None,
+        single_use: true,
+        after_opening_months: None,
+        product_url: None,
+        low_stock_threshold: None,
+        expiry_warning_days: days,
+    };
+    let narrow = product_sheets::create_sheet(&pool, sheet("Cartouche", Some(5)), vec![])
+        .await
+        .unwrap();
+    let silent = product_sheets::create_sheet(&pool, sheet("Film", Some(0)), vec![])
+        .await
+        .unwrap();
+    let usual = product_sheets::create_sheet(&pool, sheet("Gants", None), vec![])
+        .await
+        .unwrap();
+
+    // 17 jours après le 15 octobre : dans les 30 jours, hors d'un délai de 5.
+    receive(&pool, Some(narrow.id), "LOIN", "2026-11-01").await;
+    receive(&pool, Some(usual.id), "DEFAUT", "2026-11-01").await;
+    receive(&pool, None, "LIBRE", "2026-11-01").await;
+    // Déjà périmé, et un lot à 5 jours sur une fiche sans alerte anticipée.
+    receive(&pool, Some(silent.id.clone()), "PERIME", "2026-10-01").await;
+    receive(&pool, Some(silent.id), "PROCHE", "2026-10-20").await;
+
+    let board = dashboard::get_dashboard(&pool, today()).await.unwrap();
+    let expired: Vec<_> = board
+        .alerts
+        .expired
+        .iter()
+        .map(|item| item.lot_number.as_str())
+        .collect();
+    assert_eq!(expired, ["PERIME"]);
+    let soon: Vec<_> = board
+        .alerts
+        .expiring_soon
+        .iter()
+        .map(|item| item.lot_number.as_str())
+        .collect();
+    assert_eq!(soon, ["DEFAUT", "LIBRE"]);
 }
 
 #[tokio::test]

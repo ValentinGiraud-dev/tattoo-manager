@@ -55,7 +55,10 @@ test("« Pas d'alerte » sur une fiche l'emporte sur sa catégorie", async ({ pa
     .click();
   await page.getByRole("button", { name: "Ajouter un produit" }).click();
   await page.getByLabel("Nom *").fill("Film étirable");
-  await page.getByLabel("Pas d'alerte pour ce produit").check();
+  await page
+    .getByRole("group", { name: "Alerte de stock bas" })
+    .getByLabel("Pas d'alerte pour ce produit")
+    .check();
   await page.getByRole("button", { name: "Ajouter", exact: true }).click();
   await expect(page.getByText("Pas d'alerte (réglé sur la fiche)")).toBeVisible();
   await expect(page.getByText("Stock bas :")).toBeHidden();

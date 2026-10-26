@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { InfoTip } from "../../components/info-tip";
 import { btnGhost, btnPrimary, cardClass } from "../../components/styles";
 import { useConfirm } from "../../components/use-confirm";
 import { formatBytes, formatRelative, formatTimestamp } from "../../lib/format";
@@ -133,13 +134,13 @@ export function BackupSection() {
 
   return (
     <section className={`${cardClass} flex flex-col gap-4 p-4`}>
-      <div>
+      <div className="flex items-center gap-1">
         <h2 className="text-[14px] font-medium">Sauvegardes</h2>
-        <p className="mt-0.5 text-[12.5px] text-fg-muted">
+        <InfoTip label="Sauvegardes">
           Une copie chiffrée complète (base, documents, clés) est faite chaque jour et à la
           fermeture de l’app quand quelque chose a changé. Les 30 plus récentes sont gardées.
           Choisissez un dossier hors de ce Mac : iCloud Drive, disque externe…
-        </p>
+        </InfoTip>
       </div>
 
       {settings.folder ? (

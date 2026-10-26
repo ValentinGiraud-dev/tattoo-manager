@@ -34,6 +34,7 @@ export function sheetInputFromLot(lot: LotSummary): ProductSheetInput {
     afterOpeningMonths: lot.singleUse ? null : lot.afterOpeningMonths,
     productUrl: lot.productUrl,
     lowStockThreshold: null,
+    expiryWarningDays: null,
   };
 }
 

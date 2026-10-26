@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { btnPrimary, cardClass, fieldClass, labelClass } from "../../components/styles";
-import { useUnsavedChanges } from "../../components/unsaved-changes";
+import { InfoTip } from "../../components/info-tip";
+import { btnGhost, btnPrimary, cardClass, fieldClass, labelClass } from "../../components/styles";
+import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
 import { useSecurityStore } from "../../stores/security-store";
 import { useSettingsStore, type AppSettings } from "../../stores/settings-store";
+import { useUIStore } from "../../stores/ui-store";
 import { BackupSection } from "./backup-section";
 import { DangerZone } from "./danger-zone";
 import { SecuritySection } from "./security-section";
@@ -40,9 +42,9 @@ function StudioForm({ settings }: { settings: AppSettings }) {
       onSubmit={(event) => void submit(event)}
       className={`${cardClass} flex flex-col gap-4 p-4`}
     >
-      <div>
+      <div className="flex items-center gap-1">
         <h2 className="text-[14px] font-medium">Atelier</h2>
-        <p className="mt-0.5 text-[12.5px] text-fg-muted">Reporté sur le consentement imprimé.</p>
+        <InfoTip label="Atelier">Reporté sur le consentement imprimé.</InfoTip>
       </div>
       <label className={labelClass}>
         Professionnel réalisant l&apos;acte
@@ -76,6 +78,31 @@ function StudioForm({ settings }: { settings: AppSettings }) {
   );
 }
 
+function JournalSection() {
+  const setPage = useUIStore((state) => state.setPage);
+  const guardedLeave = useGuardedLeave();
+
+  return (
+    <section className={`${cardClass} flex items-center justify-between gap-4 p-4`}>
+      <div className="flex min-w-0 items-center gap-1">
+        <h2 className="text-[14px] font-medium">Journal</h2>
+        <InfoTip label="Journal">
+          Créations, modifications et annulations. Le journal ne s’efface pas.
+        </InfoTip>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          void guardedLeave(() => setPage("journal"));
+        }}
+        className={`${btnGhost} shrink-0`}
+      >
+        Ouvrir le journal
+      </button>
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   const { settings, paths, loaded, error } = useSettingsStore();
   const securityStatus = useSecurityStore((state) => state.status);
@@ -94,10 +121,12 @@ export default function SettingsPage() {
       <BackupSection />
       {paths && (
         <section className={`${cardClass} flex flex-col gap-2 p-4`}>
-          <h2 className="text-[14px] font-medium">Données sur ce Mac</h2>
-          <p className="text-[12.5px] text-fg-muted">
-            Chiffrées : ces fichiers ne s’ouvrent pas sans Tracink et son mot de passe.
-          </p>
+          <div className="flex items-center gap-1">
+            <h2 className="text-[14px] font-medium">Données sur ce Mac</h2>
+            <InfoTip label="Données sur ce Mac">
+              Chiffrées : ces fichiers ne s’ouvrent pas sans Tracink et son mot de passe.
+            </InfoTip>
+          </div>
           <dl className="grid gap-2 text-[12.5px]">
             {(
               [
@@ -114,6 +143,7 @@ export default function SettingsPage() {
           </dl>
         </section>
       )}
+      <JournalSection />
       {securityStatus && <DangerZone touchIdEnabled={securityStatus.touchIdEnabled} />}
     </div>
   );

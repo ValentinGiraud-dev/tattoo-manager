@@ -398,6 +398,16 @@ ProductCategory (ajout)
 * Une catégorie réglée « au total » alerte sur la somme du stock des fiches de sa branche (sous-catégories comprises), pour des produits interchangeables.
 * Alertes : accueil (« À traiter »), Produits (badge, filtre, alerte « au total »), fiche produit, et au moment de lier un produit à une séance.
 
+Alerte d'expiration (migration 020)
+
+ProductSheet (ajout)
+└── expiry_warning_days   vide = 30 jours ; 0 = pas d'alerte anticipée ; N = alerte si la limite utile tombe dans les N jours
+
+* Le délai se règle sur la fiche seulement. Un lot sans fiche garde 30 jours.
+* Limite utile : date d'expiration, ou la plus proche avec la durée après ouverture pour une pièce ouverte. Calcul en Rust, comme le reste de la péremption.
+* Un lot ou une pièce déjà périmé reste signalé, même si l'alerte anticipée est coupée.
+* Alertes : accueil (« Bientôt périmés à racheter ») et bandeau de la fiche.
+
 Journal d'audit (migration 012)
 
 AuditLog

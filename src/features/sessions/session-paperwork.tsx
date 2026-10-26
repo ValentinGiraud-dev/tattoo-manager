@@ -1,6 +1,7 @@
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState, type ReactNode } from "react";
 import { cardClass } from "../../components/styles";
+import { InfoTip } from "../../components/info-tip";
 import { useConfirm } from "../../components/use-confirm";
 import { formatTimestamp } from "../../lib/format";
 import {
@@ -389,9 +390,9 @@ export function SessionPaperwork({
 
   return (
     <section id="session-documents" className="flex scroll-mt-6 flex-col gap-3">
-      <div>
+      <div className="flex items-center gap-1">
         <h2 className="text-[14px] font-medium">Documents</h2>
-        <p className="mt-0.5 text-[12.5px] text-fg-faint">À remplir par le client, puis par toi.</p>
+        <InfoTip label="Documents">À remplir par le client, puis par toi.</InfoTip>
       </div>
 
       {paperwork.clientMinor === true && (
@@ -436,8 +437,10 @@ export function SessionPaperwork({
           )}
           <li className="flex items-center gap-3 px-4 py-3">
             <div className="min-w-0 flex-1">
-              <p className="text-[14px] font-medium">Conseils de cicatrisation</p>
-              <p className="mt-0.5 text-[12.5px] text-fg-faint">Fiche à remettre au client.</p>
+              <p className="flex items-center gap-1 text-[14px] font-medium">
+                Conseils de cicatrisation
+                <InfoTip label="Conseils de cicatrisation">Fiche à remettre au client.</InfoTip>
+              </p>
             </div>
             <IconButton
               label="Ouvrir la fiche de cicatrisation"

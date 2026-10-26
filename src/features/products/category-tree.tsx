@@ -76,18 +76,19 @@ export function CategoryTree({
   uncategorizedCount: number;
   onManage: () => void;
 }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // Vide au départ : les sous-catégories restent repliées tant qu'on ne les ouvre pas.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   // Une catégorie est cachée si l'un de ses parents est replié.
   const hidden = new Set<string>();
   for (const category of categories) {
-    if (category.parentId && (hidden.has(category.parentId) || collapsed.has(category.parentId))) {
+    if (category.parentId && (hidden.has(category.parentId) || !expanded.has(category.parentId))) {
       hidden.add(category.id);
     }
   }
 
   function toggle(id: string) {
-    setCollapsed((current) => {
+    setExpanded((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -129,7 +130,7 @@ export function CategoryTree({
               onSelect={() => onFilter({ kind: "category", id: category.id })}
               toggle={
                 category.childCount > 0
-                  ? { open: !collapsed.has(category.id), onToggle: () => toggle(category.id) }
+                  ? { open: expanded.has(category.id), onToggle: () => toggle(category.id) }
                   : undefined
               }
             />

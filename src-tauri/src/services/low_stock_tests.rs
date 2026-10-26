@@ -69,6 +69,7 @@ async fn sheet(
             after_opening_months: None,
             product_url: None,
             low_stock_threshold: threshold,
+            expiry_warning_days: None,
         },
         vec![],
     )
@@ -237,6 +238,7 @@ async fn category_settings_are_checked() {
             after_opening_months: None,
             product_url: None,
             low_stock_threshold: Some(-1),
+            expiry_warning_days: None,
         },
         vec![],
     )

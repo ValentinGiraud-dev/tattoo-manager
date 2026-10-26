@@ -100,7 +100,7 @@ Chaque écran qui charge des données gère les quatre états :
 
 Montrer les risques là où la décision se prend, pas seulement sur le dashboard :
 
-- lot ou flacon périmé, ou qui expire dans moins de 30 jours ;
+- lot ou flacon périmé, ou qui expire dans le délai réglé sur sa fiche (30 jours si rien n'est choisi) ;
 - stock faible ;
 - client mineur (calculé depuis `birth_date`) ;
 - séance sans produit lié une fois terminée.
@@ -134,6 +134,7 @@ Couleur + icône + texte. Jamais la couleur seule. Tokens : `success`, `warning`
 - Libellés métier stables : « séance », « lot », « pièce » (unité d'un lot à usage multiple, par exemple un flacon d'encre), « usage unique », « usage multiple ». Ne pas alterner avec « session » ou « unité » à l'écran.
 - Dates longues : « 14 oct. 2026 ». Dates relatives pour les échéances : « expire dans 12 jours ».
 - Message d'erreur = ce qui s'est passé + quoi faire : « Ce flacon est déjà sorti du stock. Annule la sortie pour le réutiliser. »
+- Une explication stable (ce qu'un réglage fait, sans changer selon la saisie) va dans `InfoTip` (`src/components/info-tip.tsx`), à côté du titre. Un risque, une erreur ou la conséquence d'une action reste écrit à l'écran.
 
 ## 10. Style
 

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { InfoTip } from "../../components/info-tip";
 import { btnGhost, btnPrimary, cardClass, fieldClass, labelClass } from "../../components/styles";
 import { useUnsavedChanges } from "../../components/unsaved-changes";
 import { useConfirm } from "../../components/use-confirm";
@@ -232,11 +233,9 @@ export function SecuritySection({ status }: { status: SecurityStatus }) {
   return (
     <section className={`${cardClass} flex flex-col gap-5 p-4`}>
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="flex items-center gap-1">
           <h2 className="text-[14px] font-medium">Sécurité</h2>
-          <p className="mt-0.5 text-[12.5px] text-fg-muted">
-            Base et documents sont chiffrés sur ce Mac (AES-256).
-          </p>
+          <InfoTip label="Sécurité">Base et documents sont chiffrés sur ce Mac (AES-256).</InfoTip>
         </div>
         <button
           type="button"
@@ -273,10 +272,15 @@ export function SecuritySection({ status }: { status: SecurityStatus }) {
               className="mt-1 accent-[var(--accent)]"
             />
             <span>
-              Déverrouiller avec Touch ID
-              <span className="mt-0.5 block text-[12.5px] text-fg-muted">
-                {touchBusy ? "En attente de Touch ID…" : "Le mot de passe reste toujours accepté."}
+              <span className="inline-flex items-center gap-1">
+                Déverrouiller avec Touch ID
+                <InfoTip label="Touch ID">Le mot de passe reste toujours accepté.</InfoTip>
               </span>
+              {touchBusy ? (
+                <span className="mt-0.5 block text-[12.5px] text-fg-muted">
+                  En attente de Touch ID…
+                </span>
+              ) : null}
             </span>
           </label>
         ) : (

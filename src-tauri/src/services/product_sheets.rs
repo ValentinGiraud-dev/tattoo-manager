@@ -24,7 +24,9 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 
 use super::archive::SHEET_LOCKED;
 use super::categories;
+use super::dashboard::{self, ExpiryNotice};
 use super::error::LotError;
+use super::expiry;
 use super::lots::{self, LotSummary};
 use super::low_stock;
 use super::sql::{self, NOW};
@@ -78,6 +80,9 @@ pub struct ProductSheetInput {
     /// Stock bas : vide = seuil de la catégorie, 0 = pas d'alerte, N = alerte à N ou moins.
     #[serde(default)]
     pub low_stock_threshold: Option<i64>,
+    /// Expiration : vide = 30 jours, 0 = pas d'alerte anticipée, N = N jours avant.
+    #[serde(default)]
+    pub expiry_warning_days: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -107,6 +112,8 @@ pub struct ProductSheetView {
     pub expired_stock: i64,
     /// Seuil réglé sur la fiche (vide : celui de la catégorie ; 0 : pas d'alerte).
     pub low_stock_threshold: Option<i64>,
+    /// Délai réglé sur la fiche (vide : 30 jours ; 0 : pas d'alerte anticipée).
+    pub expiry_warning_days: Option<i64>,
     pub archived_at: Option<String>,
     /// Seuil qui s'applique, d'où qu'il vienne ; `None` : pas d'alerte.
     #[sqlx(skip)]
@@ -117,6 +124,12 @@ pub struct ProductSheetView {
     /// Stock utilisable inférieur ou égal au seuil appliqué.
     #[sqlx(skip)]
     pub low_stock: bool,
+    /// Délai qui s'applique : 0 si l'alerte anticipée est coupée, sinon le réglage ou 30.
+    #[sqlx(skip)]
+    pub expiry_alert_days: i64,
+    /// Lot ou pièce le plus urgent encore en stock ; `None` sans alerte.
+    #[sqlx(skip)]
+    pub expiry_notice: Option<ExpiryNotice>,
 }
 
 struct Normalized {
@@ -125,6 +138,7 @@ struct Normalized {
     after_opening_months: Option<i64>,
     product_url: Option<String>,
     low_stock_threshold: Option<i64>,
+    expiry_warning_days: Option<i64>,
 }
 
 fn collapse(text: &str) -> String {
@@ -167,6 +181,7 @@ fn normalize(input: &ProductSheetInput) -> Result<Normalized, LotError> {
         after_opening_months,
         product_url: sql::clean(input.product_url.clone()),
         low_stock_threshold: low_stock::check_sheet_threshold(input.low_stock_threshold)?,
+        expiry_warning_days: dashboard::check_warning_days(input.expiry_warning_days)?,
     })
 }
 
@@ -272,7 +287,7 @@ async fn lot_count(tx: &mut Transaction<'_, Sqlite>, sheet_id: &str) -> Result<i
 }
 
 const SHEET_SELECT: &str = "SELECT id, name, brand, category_id, single_use, after_opening_months,
-        product_url, low_stock_threshold, archived_at, created_at, updated_at
+        product_url, low_stock_threshold, expiry_warning_days, archived_at, created_at, updated_at
     FROM product_sheets p";
 
 /// Complète les fiches : nom affiché, chemin de catégorie, lots et stock.
@@ -285,6 +300,8 @@ async fn complete(
         .into_iter()
         .map(|category| (category.id.clone(), category))
         .collect();
+    let today = expiry::today();
+    let stock = dashboard::stock_items(pool, today).await?;
     let mut by_sheet: HashMap<String, Vec<LotSummary>> = HashMap::new();
     for lot in lots::list_lots(pool, None, None).await? {
         if let Some(sheet_id) = lot.product_id.clone() {
@@ -327,6 +344,8 @@ async fn complete(
                     .is_some_and(|applied| low_stock::is_low(sheet.stock, applied.threshold));
             sheet.alert_threshold = applied.as_ref().map(|applied| applied.threshold);
             sheet.alert_source = applied.and_then(|applied| applied.source);
+            sheet.expiry_alert_days = dashboard::applied_warning_days(sheet.expiry_warning_days);
+            sheet.expiry_notice = dashboard::expiry_notice(&stock, &sheet.id, today);
             sheet
         })
         .collect())
@@ -383,8 +402,8 @@ pub async fn create_sheet(
     let id: String = sqlx::query_scalar(&format!(
         "INSERT INTO product_sheets
             (id, name, brand, category_id, single_use, after_opening_months, product_url,
-             low_stock_threshold, created_at, updated_at)
-         VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, {NOW}, {NOW})
+             low_stock_threshold, expiry_warning_days, created_at, updated_at)
+         VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?, {NOW}, {NOW})
          RETURNING id"
     ))
     .bind(&normalized.name)
@@ -394,6 +413,7 @@ pub async fn create_sheet(
     .bind(normalized.after_opening_months)
     .bind(&normalized.product_url)
     .bind(normalized.low_stock_threshold)
+    .bind(normalized.expiry_warning_days)
     .fetch_one(&mut *tx)
     .await?;
     for lot_id in &attach_lot_ids {
@@ -433,7 +453,7 @@ pub async fn update_sheet(
     sqlx::query(&format!(
         "UPDATE product_sheets
          SET name = ?, brand = ?, category_id = ?, single_use = ?, after_opening_months = ?,
-             product_url = ?, low_stock_threshold = ?, updated_at = {NOW}
+             product_url = ?, low_stock_threshold = ?, expiry_warning_days = ?, updated_at = {NOW}
          WHERE id = ?"
     ))
     .bind(&normalized.name)
@@ -443,6 +463,7 @@ pub async fn update_sheet(
     .bind(normalized.after_opening_months)
     .bind(&normalized.product_url)
     .bind(normalized.low_stock_threshold)
+    .bind(normalized.expiry_warning_days)
     .bind(id)
     .execute(&mut *tx)
     .await?;

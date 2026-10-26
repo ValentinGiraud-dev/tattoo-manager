@@ -64,6 +64,7 @@ describe("lots à rattacher", () => {
       afterOpeningMonths: 12,
       productUrl: null,
       lowStockThreshold: null,
+      expiryWarningDays: null,
     });
   });
 });

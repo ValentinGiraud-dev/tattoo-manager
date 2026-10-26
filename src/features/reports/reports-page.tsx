@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { DateSelector } from "../../components/date-selector";
+import { InfoTip } from "../../components/info-tip";
 import { btnGhost, cardClass, labelClass } from "../../components/styles";
 import { formatIsoDate } from "../../lib/format";
 import { PAYMENT_METHOD_LABELS } from "../../lib/labels";
@@ -113,7 +114,12 @@ function Summary({ summary }: { summary: PeriodSummary }) {
         )}
       </section>
       <section className={`${cardClass} p-4`}>
-        <h2 className="mb-2 text-[14px] font-medium">Activité</h2>
+        <h2 className="mb-2 flex items-center gap-1 text-[14px] font-medium">
+          Activité
+          <InfoTip label="Activité">
+            Une séance compte à sa date ; un encaissement à sa date de paiement.
+          </InfoTip>
+        </h2>
         <dl className="divide-y divide-line">
           <Row label="Séances terminées" value={String(summary.sessionsCompleted)} strong />
           <Row
@@ -125,9 +131,6 @@ function Summary({ summary }: { summary: PeriodSummary }) {
           <Row label="Absences" value={String(summary.sessionsNoShow)} />
           <Row label="Nouveaux clients" value={String(summary.newClients)} />
         </dl>
-        <p className="mt-3 text-[12px] text-fg-faint">
-          Une séance compte à sa date ; un encaissement à sa date de paiement.
-        </p>
       </section>
     </div>
   );
@@ -163,12 +166,12 @@ function Exports({ from, to }: { from: string; to: string }) {
 
   return (
     <section className={`${cardClass} flex flex-col gap-4 p-4`}>
-      <div>
+      <div className="flex items-center gap-1">
         <h2 className="text-[14px] font-medium">Exports CSV</h2>
-        <p className="mt-0.5 text-[12.5px] text-fg-muted">
+        <InfoTip label="Exports CSV">
           Pour la comptabilité ou un contrôle, sur la période choisie. Le fichier s’ouvre dans
           Numbers ou Excel.
-        </p>
+        </InfoTip>
       </div>
       <p
         role="note"
@@ -182,8 +185,10 @@ function Exports({ from, to }: { from: string; to: string }) {
         {EXPORTS.map((item) => (
           <li key={item.kind} className="flex items-center justify-between gap-4 py-2.5">
             <div className="min-w-0">
-              <p className="text-[13.5px] text-fg">{item.title}</p>
-              <p className="text-[12.5px] text-fg-muted">{item.description}</p>
+              <p className="flex items-center gap-1 text-[13.5px] text-fg">
+                {item.title}
+                <InfoTip label={item.title}>{item.description}</InfoTip>
+              </p>
             </div>
             <button
               type="button"

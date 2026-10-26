@@ -284,6 +284,7 @@ export function installFakeBackend(scenario: Scenario) {
     afterOpeningMonths: number | null;
     productUrl: string | null;
     lowStockThreshold?: number | null;
+    expiryWarningDays?: number | null;
   };
   const sheets: Sheet[] = [];
   /** Seuil appliqué : celui de la fiche (0 = aucun), sinon la catégorie « par produit » la plus proche. */
@@ -305,6 +306,44 @@ export function installFakeBackend(scenario: Scenario) {
   }
   let nextSheet = 1;
   const display = (sheet: Sheet) => (sheet.brand ? `${sheet.brand} ${sheet.name}` : sheet.name);
+  function appliedExpiry(sheet: Sheet): number {
+    if (sheet.expiryWarningDays === 0) return 0;
+    if (sheet.expiryWarningDays) return sheet.expiryWarningDays;
+    return 30;
+  }
+  function addDays(iso: string, days: number): string {
+    const [year, month, day] = iso.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    date.setUTCDate(date.getUTCDate() + days);
+    const nextMonth = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const nextDay = String(date.getUTCDate()).padStart(2, "0");
+    return `${date.getUTCFullYear()}-${nextMonth}-${nextDay}`;
+  }
+  function expiryNotice(sheet: Sheet) {
+    const days = appliedExpiry(sheet);
+    const horizon = addDays(TODAY, days);
+    const flagged = lots
+      .filter((item) => item.productId === sheet.id && !item.archivedAt && item.stock > 0)
+      .flatMap((item) => {
+        const expired = item.expirationDate < TODAY;
+        const soon = !expired && days > 0 && item.expirationDate <= horizon;
+        if (!expired && !soon) return [];
+        return [{ expired, lotNumber: item.lotNumber, usefulUntil: item.expirationDate }];
+      })
+      .sort(
+        (a, b) =>
+          Number(b.expired) - Number(a.expired) ||
+          a.usefulUntil.localeCompare(b.usefulUntil) ||
+          a.lotNumber.localeCompare(b.lotNumber),
+      );
+    if (flagged.length === 0) return null;
+    return {
+      expired: flagged[0].expired,
+      lotNumber: flagged[0].lotNumber,
+      usefulUntil: flagged[0].usefulUntil,
+      extra: flagged.length - 1,
+    };
+  }
   function sheetView(sheet: Sheet) {
     const own = lots.filter((l) => l.productId === sheet.id);
     const paths = tree();
@@ -319,6 +358,9 @@ export function installFakeBackend(scenario: Scenario) {
       stock: own.filter((l) => !l.expired).reduce((sum, l) => sum + l.stock, 0),
       expiredStock: own.filter((l) => l.expired).reduce((sum, l) => sum + l.stock, 0),
       lowStockThreshold: sheet.lowStockThreshold ?? null,
+      expiryWarningDays: sheet.expiryWarningDays ?? null,
+      expiryAlertDays: appliedExpiry(sheet),
+      expiryNotice: expiryNotice(sheet),
       alertThreshold: applied(sheet)?.threshold ?? null,
       alertSource: applied(sheet)?.source ?? null,
       lowStock: false,
@@ -665,6 +707,12 @@ export function installFakeBackend(scenario: Scenario) {
       sheets.push(sheet);
       for (const id of attachLotIds as string[]) attachLot(id, sheet);
       return sheetViews().find((p) => p.id === sheet.id);
+    },
+    update_product_sheet: ({ id, input }) => {
+      const sheet = sheets.find((item) => item.id === id);
+      if (!sheet) return fail("Cette fiche produit n'existe plus");
+      Object.assign(sheet, input as Sheet);
+      return sheetViews().find((item) => item.id === id);
     },
     set_lot_product_sheet: ({ lotId, sheetId }) => {
       const target = lots.find((l) => l.id === lotId)!;

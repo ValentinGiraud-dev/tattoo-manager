@@ -4,6 +4,7 @@ import { BackButton } from "../../components/back-button";
 import { btnPrimary, cardClass } from "../../components/styles";
 import { useConfirm } from "../../components/use-confirm";
 import { useGuardedLeave } from "../../components/unsaved-changes";
+import { expiryBannerText } from "../../lib/expiry-alert";
 import { formatIsoDate } from "../../lib/format";
 import { SESSION_STATUS_LABELS } from "../../lib/labels";
 import type { SessionStatus } from "../../stores/sessions-store";
@@ -287,6 +288,20 @@ export function SheetEditor({
           <span aria-hidden="true">⚠︎ </span>
           <span className="font-medium">Stock bas :</span> il en reste {sheet.stock} (alerte à{" "}
           {sheet.alertThreshold} ou moins). Pense à en racheter.
+        </p>
+      )}
+
+      {sheet?.expiryNotice && (
+        <p
+          role="note"
+          className={`rounded-md border px-3 py-2 text-[13px] text-fg ${
+            sheet.expiryNotice.expired
+              ? "border-danger/40 bg-danger/10"
+              : "border-warning/40 bg-warning/10"
+          }`}
+        >
+          <span aria-hidden="true">⚠︎ </span>
+          {expiryBannerText(sheet.expiryNotice, sheet.expiryAlertDays)}
         </p>
       )}
 

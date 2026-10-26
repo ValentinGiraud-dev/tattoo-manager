@@ -7,6 +7,7 @@ import {
   inlineFieldClass,
   labelClass,
 } from "../../components/styles";
+import { InfoTip } from "../../components/info-tip";
 import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
 import { formatIsoDate } from "../../lib/format";
 import { inheritedThreshold } from "../../lib/low-stock";
@@ -48,25 +49,39 @@ function TypeToggle({
   );
   return (
     <fieldset className="flex flex-col gap-2">
-      <legend className={labelClass}>Type *</legend>
+      <legend className="flex items-center gap-0.5 text-[12.5px] font-medium text-fg-muted">
+        Type *
+        {disabled ? null : (
+          <InfoTip label="Type">
+            Usage unique : aiguilles, cartouches, gants. Usage multiple : encres et tout produit
+            entamé puis réutilisé.
+          </InfoTip>
+        )}
+      </legend>
       <div className="mt-1 flex gap-2">
         {option(true, "Usage unique")}
         {option(false, "Usage multiple")}
       </div>
-      <p className="text-[12.5px] text-fg-muted">
-        {disabled
-          ? "La fiche a déjà des lots : son type ne change plus."
-          : "Usage unique : aiguilles, cartouches, gants. Usage multiple : encres et tout produit entamé puis réutilisé."}
-      </p>
+      {disabled ? (
+        <p className="text-[12.5px] text-fg-muted">
+          La fiche a déjà des lots : son type ne change plus.
+        </p>
+      ) : null}
     </fieldset>
   );
 }
 
 type AlertChoice = "inherit" | "none" | "custom";
+type ExpiryChoice = "default" | "none" | "custom";
 
 function alertChoice(threshold: number | null): AlertChoice {
   if (threshold === null) return "inherit";
   return threshold === 0 ? "none" : "custom";
+}
+
+function expiryChoice(days: number | null): ExpiryChoice {
+  if (days === null) return "default";
+  return days === 0 ? "none" : "custom";
 }
 
 /**
@@ -98,6 +113,7 @@ export function SheetForm({
         afterOpeningMonths: sheet.afterOpeningMonths,
         productUrl: sheet.productUrl,
         lowStockThreshold: sheet.lowStockThreshold,
+        expiryWarningDays: sheet.expiryWarningDays,
       }
     : fromLot
       ? sheetInputFromLot(fromLot)
@@ -109,6 +125,7 @@ export function SheetForm({
           afterOpeningMonths: null,
           productUrl: null,
           lowStockThreshold: null,
+          expiryWarningDays: null,
         };
   const [name, setName] = useState(initial.name);
   const [brand, setBrand] = useState(initial.brand ?? "");
@@ -119,6 +136,10 @@ export function SheetForm({
   const [alert, setAlert] = useState<AlertChoice>(alertChoice(initial.lowStockThreshold));
   const [alertValue, setAlertValue] = useState(
     initial.lowStockThreshold ? String(initial.lowStockThreshold) : "",
+  );
+  const [expiry, setExpiry] = useState<ExpiryChoice>(expiryChoice(initial.expiryWarningDays));
+  const [expiryValue, setExpiryValue] = useState(
+    initial.expiryWarningDays ? String(initial.expiryWarningDays) : "",
   );
   const inherited = inheritedThreshold(categories, categoryId);
   const [lots, setLots] = useState<LotSummary[]>([]);
@@ -158,7 +179,9 @@ export function SheetForm({
       months !== (initial.afterOpeningMonths?.toString() ?? "") ||
       productUrl !== (initial.productUrl ?? "") ||
       alert !== alertChoice(initial.lowStockThreshold) ||
-      (alert === "custom" && alertValue !== String(initial.lowStockThreshold ?? "")));
+      (alert === "custom" && alertValue !== String(initial.lowStockThreshold ?? "")) ||
+      expiry !== expiryChoice(initial.expiryWarningDays) ||
+      (expiry === "custom" && expiryValue !== String(initial.expiryWarningDays ?? "")));
   useUnsavedChanges(dirty);
 
   function toggle(id: string) {
@@ -194,6 +217,19 @@ export function SheetForm({
         return;
       }
     }
+    let expiryWarningDays: number | null = expiry === "none" ? 0 : null;
+    if (expiry === "custom") {
+      expiryWarningDays = Number(expiryValue);
+      if (
+        expiryValue.trim() === "" ||
+        !Number.isInteger(expiryWarningDays) ||
+        expiryWarningDays < 1 ||
+        expiryWarningDays > 3650
+      ) {
+        setError("Le délai d'alerte doit être un nombre entier de jours, entre 1 et 3 650");
+        return;
+      }
+    }
     const input: ProductSheetInput = {
       name: name.trim(),
       brand: emptyToNull(brand),
@@ -202,6 +238,7 @@ export function SheetForm({
       afterOpeningMonths,
       productUrl: emptyToNull(productUrl),
       lowStockThreshold,
+      expiryWarningDays,
     };
     setSaving(true);
     setError(null);
@@ -280,7 +317,15 @@ export function SheetForm({
         )}
 
         <label className={labelClass}>
-          Lien du produit
+          <span className="inline-flex items-center gap-0.5">
+            Lien du produit
+            {sheet ? (
+              <InfoTip label="Lien du produit">
+                La durée après ouverture et le lien servent aux prochains lots. Les lots déjà reçus
+                gardent les leurs. La catégorie s&apos;applique à tous les lots de la fiche.
+              </InfoTip>
+            ) : null}
+          </span>
           <input
             type="url"
             value={productUrl}
@@ -291,7 +336,13 @@ export function SheetForm({
         </label>
 
         <fieldset className="flex flex-col gap-1.5">
-          <legend className={labelClass}>Alerte de stock bas</legend>
+          <legend className="flex items-center gap-0.5 text-[12.5px] font-medium text-fg-muted">
+            Alerte de stock bas
+            <InfoTip label="Alerte de stock bas">
+              Compté sur les lots non périmés de la fiche. Les seuils des catégories se règlent dans
+              « Gérer » les catégories.
+            </InfoTip>
+          </legend>
           {(
             [
               [
@@ -332,26 +383,64 @@ export function SheetForm({
               )}
             </label>
           ))}
-          <p className="text-[12.5px] text-fg-muted">
-            Compté sur les lots non périmés de la fiche. Les seuils des catégories se règlent dans «
-            Gérer » les catégories.
-          </p>
         </fieldset>
 
-        {sheet && (
-          <p className="text-[12.5px] text-fg-muted">
-            La durée après ouverture et le lien servent aux prochains lots. Les lots déjà reçus
-            gardent les leurs. La catégorie s&apos;applique à tous les lots de la fiche.
-          </p>
-        )}
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="flex items-center gap-0.5 text-[12.5px] font-medium text-fg-muted">
+            Alerte d&apos;expiration
+            <InfoTip label="Alerte d'expiration">
+              Sur les lots et les pièces encore en stock. Pour une pièce ouverte, c&apos;est la plus
+              proche entre la date d&apos;expiration et la fin de la durée après ouverture. Un
+              produit déjà périmé reste signalé.
+            </InfoTip>
+          </legend>
+          {(
+            [
+              ["default", "30 jours avant (par défaut)"],
+              ["none", "Pas d'alerte pour ce produit"],
+              ["custom", "Alerte"],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value} className="flex items-center gap-2.5 text-[13.5px] text-fg">
+              <input
+                type="radio"
+                name="expiry-warning"
+                checked={expiry === value}
+                onChange={() => setExpiry(value)}
+              />
+              {label}
+              {value === "custom" && (
+                <>
+                  <input
+                    type="number"
+                    min={1}
+                    max={3650}
+                    step={1}
+                    value={expiryValue}
+                    onFocus={() => setExpiry("custom")}
+                    onChange={(event) => {
+                      setExpiry("custom");
+                      setExpiryValue(event.target.value);
+                    }}
+                    aria-label="Délai d'alerte"
+                    className={`${inlineFieldClass} w-20`}
+                  />
+                  <span>jours avant</span>
+                </>
+              )}
+            </label>
+          ))}
+        </fieldset>
 
         {!sheet && candidates.length > 0 && (
           <fieldset className={`${cardClass} flex flex-col gap-1 p-4`}>
             <legend className="sr-only">Lots à rattacher</legend>
-            <p className="text-[13.5px] font-medium text-fg">Rattacher des lots sans fiche</p>
-            <p className="mb-2 text-[12.5px] text-fg-muted">
-              Leur nom, leur numéro et leur péremption ne changent pas. Ils sont rangés dans la
-              catégorie de la fiche.
+            <p className="mb-2 flex items-center gap-1 text-[13.5px] font-medium text-fg">
+              Rattacher des lots sans fiche
+              <InfoTip label="Rattacher des lots sans fiche">
+                Leur nom, leur numéro et leur péremption ne changent pas. Ils sont rangés dans la
+                catégorie de la fiche.
+              </InfoTip>
             </p>
             <div className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
               {candidates.map((lot) => (

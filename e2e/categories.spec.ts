@@ -31,6 +31,9 @@ test("créer Aiguilles › RL, y ranger un lot et filtrer la liste", async ({ pa
 
   await page.getByRole("button", { name: "← Produits" }).click();
   const tree = page.getByRole("navigation", { name: "Catégories" });
+  // Les sous-catégories sont repliées tant qu'on ne les ouvre pas.
+  await expect(tree.getByRole("button", { name: /^RL/ })).toBeHidden();
+  await tree.getByRole("button", { name: "Déplier Aiguilles" }).click();
   await tree.getByRole("button", { name: /^RL/ }).click();
   await expect(page.getByRole("heading", { name: "Ma traçabilité" })).toBeVisible();
   await expect(tree.getByRole("button", { name: /^RL/ })).toHaveAttribute("aria-pressed", "true");

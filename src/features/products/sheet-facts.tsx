@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { cardClass } from "../../components/styles";
+import { expiryAlertLabel } from "../../lib/expiry-alert";
 import { formatTimestamp } from "../../lib/format";
 import { sheetThresholdLabel } from "../../lib/low-stock";
 import { sheetStockLabel, sheetTypeLabel } from "../../lib/product-sheets";
@@ -82,6 +83,7 @@ export function SheetFacts({
         <Fact label="Type">{sheetTypeLabel(sheet)}</Fact>
         <Fact label="Stock total">{sheetStockLabel(sheet)}</Fact>
         <Fact label="Stock bas">{sheetThresholdLabel(sheet)}</Fact>
+        <Fact label="Expiration">{expiryAlertLabel(sheet.expiryWarningDays)}</Fact>
         <Fact label="Lien">
           {sheet.productUrl ? (
             <button

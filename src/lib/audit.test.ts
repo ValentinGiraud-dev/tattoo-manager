@@ -112,6 +112,9 @@ describe("formatValue", () => {
     expect(formatValue("payment", "method", "CARD", names)).toBe("Carte");
     expect(formatValue("session", "duration_minutes", 90, names)).toBe("1 h 30");
     expect(formatValue("client", "phone", null, names)).toBe("—");
+    expect(formatValue("product", "expiry_warning_days", null, names)).toBe("30 jours avant");
+    expect(formatValue("product", "expiry_warning_days", 0, names)).toBe("Pas d'alerte");
+    expect(formatValue("product", "expiry_warning_days", 14, names)).toBe("14 jours avant");
   });
 
   it("remplace un identifiant par le nom de la fiche, ou dit qu'elle n'existe plus", () => {

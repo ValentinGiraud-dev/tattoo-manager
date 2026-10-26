@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { btnGhost, btnPrimary, cardClass, fieldClass } from "../../components/styles";
+import { InfoTip } from "../../components/info-tip";
 import { useConfirm } from "../../components/use-confirm";
 import { possibleParents } from "../../lib/categories";
 import { categoryAlertLabel } from "../../lib/low-stock";
@@ -183,11 +184,11 @@ export function CategoryManager({ onBack }: { onBack: () => void }) {
         ← Produits
       </button>
       <div className="flex items-start justify-between gap-4">
-        <div>
+        <div className="flex items-center gap-1">
           <h1 className="text-[24px] font-medium tracking-tight">Catégories</h1>
-          <p className="mt-1 text-[13px] text-fg-muted">
+          <InfoTip label="Catégories">
             Rangez les produits sur autant de niveaux que vous voulez : Encres, Aiguilles › RL…
-          </p>
+          </InfoTip>
         </div>
         {!(editing?.kind === "add" && editing.parentId === null) ? (
           <button

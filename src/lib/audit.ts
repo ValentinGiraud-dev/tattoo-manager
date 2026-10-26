@@ -117,6 +117,7 @@ const FIELDS: Record<string, string> = {
   product_url: "Lien du produit",
   low_stock_threshold: "Seuil de stock bas",
   low_stock_mode: "Alerte de stock bas",
+  expiry_warning_days: "Alerte d'expiration",
   reason: "Motif",
   note: "Note",
   notes: "Notes",
@@ -325,6 +326,11 @@ export function formatValue(
   value: unknown,
   names: Record<string, string>,
 ): string {
+  if (field === "expiry_warning_days") {
+    if (value === null || value === undefined || value === "") return "30 jours avant";
+    if (value === 0) return "Pas d'alerte";
+    return `${value} jour${value === 1 ? "" : "s"} avant`;
+  }
   if (value === null || value === undefined || value === "") return "—";
   if (REFERENCE_FIELDS.has(field) && typeof value === "string") {
     return names[value] ?? "fiche supprimée";

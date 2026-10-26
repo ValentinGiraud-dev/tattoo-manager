@@ -433,6 +433,7 @@ async fn product_history_filters_one_sheet() {
         after_opening_months: None,
         product_url: None,
         low_stock_threshold: None,
+        expiry_warning_days: None,
     };
     let red = product_sheets::create_sheet(&pool, sheet("Encre rouge"), vec![])
         .await

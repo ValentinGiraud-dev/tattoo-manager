@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ArchiveBanner, ArchiveMention } from "../../components/archive-controls";
+import { InfoTip } from "../../components/info-tip";
 import { MoneyForm } from "../../components/money-form";
 import { btnGhost, btnPrimary, cardClass, fieldClass, labelClass } from "../../components/styles";
 import { useGuardedLeave, useUnsavedChanges } from "../../components/unsaved-changes";
@@ -579,11 +580,11 @@ export function ClientProjects({
     <section className="flex flex-col gap-3">
       {mode.kind !== "detail" && (
         <div className="flex items-center justify-between gap-3">
-          <div>
+          <div className="flex items-center gap-1">
             <h2 className="text-[14px] font-medium">Projets</h2>
-            <p className="mt-0.5 text-[12.5px] text-fg-muted">
+            <InfoTip label="Projets">
               Une pièce en une ou plusieurs séances, avec son prix et ses acomptes.
-            </p>
+            </InfoTip>
           </div>
           {mode.kind === "list" && !clientArchived && (
             <button type="button" onClick={() => setMode({ kind: "form" })} className={btnGhost}>

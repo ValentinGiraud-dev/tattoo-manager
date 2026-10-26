@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DateSelector } from "../../components/date-selector";
+import { InfoTip } from "../../components/info-tip";
 import { btnGhost, cardClass, fieldClass, labelClass } from "../../components/styles";
 import { localDay } from "../../lib/audit";
 import { formatIsoDate } from "../../lib/format";
@@ -110,12 +111,12 @@ export default function JournalPage() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-5 px-8 py-10">
-      <div>
+      <div className="flex items-center gap-1">
         <h1 className="text-[24px] font-medium tracking-tight">Journal</h1>
-        <p className="mt-1 text-[13px] text-fg-muted">
+        <InfoTip label="Journal">
           Tout ce qui a été créé, modifié, annulé ou supprimé dans Tracink, avec la date et le
           détail. Le journal ne peut être ni modifié ni effacé.
-        </p>
+        </InfoTip>
       </div>
 
       <div className="flex flex-wrap items-end gap-4">

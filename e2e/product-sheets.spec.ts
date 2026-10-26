@@ -38,6 +38,32 @@ test("un lot reçu avant les fiches est signalé, puis rattaché à sa nouvelle 
   await expect(page.getByRole("row", { name: /Dynamic Encre rouge/ })).toBeVisible();
 });
 
+test("le délai d'expiration se règle sur la fiche et le lot périmé reste signalé", async ({
+  page,
+}) => {
+  await openProducts(page);
+  await page.getByRole("button", { name: "Ajouter un produit" }).click();
+  await page.getByLabel("Nom *").fill("Cartouches 3RL");
+  const expiry = page.getByRole("group", { name: "Alerte d'expiration" });
+  await expiry.getByLabel("Délai d'alerte").fill("14");
+  await page.getByRole("checkbox", { name: /Encre rouge · lot ER-1/ }).check();
+  await page.getByRole("button", { name: "Ajouter", exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: "Cartouches 3RL" })).toBeVisible();
+  await expect(page.locator("dt:text-is('Expiration') + dd")).toHaveText("Alerte 14 jours avant");
+  await expect(page.getByText("Périmé : lot ER-1, exp. 1 septembre 2026.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Modifier la fiche" }).click();
+  await page
+    .getByRole("group", { name: "Alerte d'expiration" })
+    .getByLabel("Pas d'alerte pour ce produit")
+    .check();
+  await page.getByRole("button", { name: "Enregistrer" }).click();
+
+  await expect(page.locator("dt:text-is('Expiration') + dd")).toHaveText("Pas d'alerte");
+  await expect(page.getByText("Périmé : lot ER-1, exp. 1 septembre 2026.")).toBeVisible();
+});
+
 test("recevoir un lot d'un produit sans fiche : la fiche se crée en chemin", async ({ page }) => {
   await openProducts(page);
   await page.getByRole("button", { name: "Ajouter un lot" }).click();

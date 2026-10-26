@@ -57,7 +57,7 @@ const NAV: { id: AppPage; label: string }[] = [
   { id: "sessions", label: "Séances" },
   { id: "products", label: "Produits" },
   { id: "reports", label: "Rapports" },
-  { id: "journal", label: "Journal" },
+  // Le journal s'ouvre depuis Paramètres.
   { id: "settings", label: "Paramètres" },
 ];
 

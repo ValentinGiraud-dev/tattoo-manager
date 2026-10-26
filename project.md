@@ -955,6 +955,7 @@ La roadmap est indicative et pourra changer.
 - [x] Catégories de produits libres, sur plusieurs niveaux (ex. Aiguilles › RL)
 - [x] Fiches produit au-dessus des lots (nom, marque, catégorie, type) ; lots existants rattachables
 - [x] Stock bas : seuil par fiche produit ou par catégorie (chaque produit ou au total), alertes accueil, Produits et séance
+- [x] Alerte d'expiration : délai en jours sur la fiche produit (30 par défaut), accueil et fiche
 - [ ] Fournisseurs, emplacement
 - [ ] Hygiène et stérilisation
 - [ ] Documents et photos

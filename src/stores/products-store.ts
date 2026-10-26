@@ -76,6 +76,12 @@ export interface ProductSheet {
   expiredStock: number;
   /** Seuil réglé sur la fiche : `null` = celui de la catégorie, 0 = pas d'alerte. */
   lowStockThreshold: number | null;
+  /** Délai réglé sur la fiche : `null` = 30 jours, 0 = pas d'alerte anticipée. */
+  expiryWarningDays: number | null;
+  /** Délai qui s'applique : 0 si l'alerte anticipée est coupée, sinon le réglage ou 30. */
+  expiryAlertDays: number;
+  /** Lot ou pièce le plus urgent encore en stock ; `null` sans alerte. */
+  expiryNotice: ExpiryNotice | null;
   /** Seuil qui s'applique, d'où qu'il vienne ; `null` : pas d'alerte. */
   alertThreshold: number | null;
   /** Catégorie d'où vient le seuil appliqué ; `null` s'il est réglé sur la fiche. */
@@ -117,6 +123,15 @@ export interface LowStockReport {
   categories: CategoryAlert[];
 }
 
+/** Avis d'expiration d'une fiche, calculé en Rust. */
+export interface ExpiryNotice {
+  expired: boolean;
+  lotNumber: string;
+  usefulUntil: string;
+  /** Autres lots ou pièces aussi concernés. */
+  extra: number;
+}
+
 export interface ProductSheetInput {
   name: string;
   brand: string | null;
@@ -125,6 +140,8 @@ export interface ProductSheetInput {
   afterOpeningMonths: number | null;
   productUrl: string | null;
   lowStockThreshold: number | null;
+  /** `null` = 30 jours, 0 = pas d'alerte anticipée, N = N jours avant. */
+  expiryWarningDays: number | null;
 }
 
 /** Catégorie de produits, dans l'ordre de l'arbre (parent puis enfants). */
