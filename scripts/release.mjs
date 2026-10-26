@@ -370,11 +370,12 @@ console.log(`
 ✓ Tracink ${version} publiée${flag("draft") ? " (brouillon : publie-la sur GitHub pour qu'elle soit proposée)" : ""}.
   Les Tracink installées la proposeront au prochain lancement (ou Paramètres → Vérifier les mises à jour).
 
-Il reste à commiter la version et la marquer :
+Il reste à commiter la version. Ne crée pas le tag ${tag} : GitHub l'a déjà posé
+sur le commit qui vient d'être construit. Un second tag local, sur le commit
+« Release », diverge et bloque le prochain pull.
   git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
-  git commit -m "Release v${version}" && git tag ${tag} && git push --follow-tags
-
-Le tag ${tag} est déjà sur GitHub, au commit depuis lequel cette commande a tourné. S'il existe déjà, le push du tag sera refusé : les fichiers de la release, eux, sont en ligne.
+  git commit -m "Release v${version}" && git push
+  git fetch origin tag ${tag}
 `);
 
 /** Lit une ligne sans l'afficher (mot de passe). */

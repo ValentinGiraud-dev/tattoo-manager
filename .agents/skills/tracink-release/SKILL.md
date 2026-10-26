@@ -66,10 +66,11 @@ Elle affiche la commande à lancer, seulement si l'utilisateur l'a demandé :
 
 ```bash
 git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
-git commit -m "Release v<version>" && git tag v<version> && git push --follow-tags
+git commit -m "Release v<version>" && git push
+git fetch origin tag v<version>
 ```
 
-Le tag GitHub existe déjà : il pointe le commit depuis lequel la commande a tourné. Si `git push --follow-tags` refuse le tag, les fichiers de la release sont déjà en ligne. Ne pas forcer le tag sans demande explicite.
+`gh release create` a déjà posé le tag `v<version>` sur le commit construit. Ne pas lancer `git tag` ni `git push --follow-tags` : ce second tag, posé sur le commit « Release », diverge du tag GitHub. Au pull suivant, Git refuse de bouger le tag local (« conflicting tag »). Ne pas forcer le tag sans demande explicite.
 
 Si la version contient une migration : vérifier qu'elle a été essayée sur une copie d'une vraie base (skill `tracink-migration`). L'app copie la base avant migration, mais ce n'est pas une excuse.
 
